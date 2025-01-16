@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -20,6 +21,7 @@ func main() {
 		fmt.Println(inputs[i])
 	}
 
+	createFile("main.hack", []string{"Hello", "World"})
 }
 
 // ファイルを開いて, その中身を返す
@@ -43,4 +45,19 @@ func openFile(name string) ([]string, error) {
 	}
 	list := strings.Split(string(data[:count]), "\n")
 	return list, nil
+}
+
+func createFile(name string, data []string) {
+	file, err := os.Create(name)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer file.Close()
+
+	w := bufio.NewWriter(file)
+	for i := 0; i < len(data); i++ {
+		w.WriteString(data[i] + "\n")
+	}
+	w.Flush()
 }
