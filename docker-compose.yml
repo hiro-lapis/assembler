@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  rust:
+    image: rust:1.84-alpine
+    container_name: rust_container
+    volumes:
+      - ./rust:/usr/src/app
+    working_dir: /usr/src/app
+    command: ["sleep", "infinity"]
+    tty: true
+
+  golang:
+    image: golang:1.22.3-alpine
+    container_name: golang_container
+    volumes:
+      - ./go:/go/src/app
+    working_dir: /go/src/app
+    command: ["sleep", "infinity"]
+    tty: true
+
+volumes:
+  rust_data:
+  golang_data:
