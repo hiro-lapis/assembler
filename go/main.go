@@ -24,6 +24,27 @@ func main() {
 	createFile("main.hack", []string{"Hello", "World"})
 }
 
+type Parser struct {
+}
+
+func (p *Parser) Exec(line string) (v string, isA bool) {
+	return v, isA
+}
+
+type Code struct {
+}
+
+func (c *Code) Exec(v string) string {
+	return "1110001100001000"
+}
+
+type SymbolTable struct {
+}
+
+func (s *SymbolTable) Exec() string {
+	return ""
+}
+
 // ファイルを開いて, その中身を返す
 func openFile(name string) ([]string, error) {
 	file, err := os.Open(name)
