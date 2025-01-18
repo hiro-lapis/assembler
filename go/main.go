@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -21,19 +22,15 @@ func main() {
 	}
 
 	p := Parser{}
+	c := Code{}
 	parsedLine := make([]string, 0)
-	isAList := make([]bool, 0)
 	idx := 0
 	for i := 0; i < len(inputs); i++ {
 		l, isA := p.Exec(inputs[i])
 		if l != "" {
-			parsedLine = append(parsedLine, l)
-			isAList = append(isAList, isA)
 			idx++
-			// if isAList[idx-1] {
-			// 	// 	parsedLine[idx-1] += "A!"
-			// 	// num, _ := strconv.ParseInt(parsedLine[idx-1][1:], 2, 0)
-			// }
+			binaryStr := c.Exec(l, isA)
+			parsedLine = append(parsedLine, binaryStr)
 		}
 	}
 
@@ -62,11 +59,20 @@ func (p *Parser) Exec(line string) (v string, isA bool) {
 	return v, isA
 }
 
+const OP_CODE_A = "0"
+const OP_CODE_C = "111"
+
 type Code struct {
 }
 
-func (c *Code) Exec(v string) string {
-	return "1110001100001000"
+func (c *Code) Exec(v string, isA bool) (result string) {
+	if isA {
+		num, _ := strconv.Atoi(v[1:])
+		binaryStr := strconv.FormatInt(int64(num), 2)
+		result = OP_CODE_A + strings.Repeat("0", 15-len(binaryStr)) + binaryStr
+		return result
+	}
+	return OP_CODE_C + "accccccdddjjj"
 }
 
 type SymbolTable struct {
