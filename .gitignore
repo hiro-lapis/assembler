@@ -8,3 +8,5 @@
 **/main
 **/prog.txt
 **/.DS_Store
+
+rust/target/

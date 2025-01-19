@@ -1,0 +1,22 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://code.visualstudio.com/docs/editor/debugging#_launchjson-attributes
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug",
+            // debugger refers compiled file
+            "program": "${workspaceFolder}/target/debug/app",
+            // In order to debug latest file,
+            // debugger builds rust file before executes debug command.
+            // 'cargo build' comes from task.json's label field
+            "preLaunchTask": "cargo build",
+
+            "args": [], // arg for debug command
+            "cwd": "", // current dir setting for dependency reference
+        },
+    ]
+}
