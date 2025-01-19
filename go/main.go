@@ -211,7 +211,7 @@ func (p *Parser) Exec(line string) (v string, isA bool) {
 }
 
 const OP_CODE_A = "0"
-const OP_CODE_C = "1110"
+const OP_CODE_C = "111"
 
 type Code struct {
 }
@@ -233,41 +233,61 @@ func (c *Code) computation(v string) string {
 	var result string
 	switch string(v) {
 	case "0":
-		return "101010"
+		return "0101010"
 	case "1":
-		return "111111"
+		return "0111111"
 	case "-1":
-		return "111010"
+		return "0111010"
 	case "D":
-		return "001100"
-	case "A", "M":
-		return "110000"
+		return "0001100"
+	case "A":
+		return "0110000"
+	case "M":
+		return "1110000"
 	case "!D":
 		return "0001101"
-	case "!A", "!M":
-		return "110001"
+	case "!A":
+		return "0110001"
+	case "!M":
+		return "1110001"
 	case "-D":
-		return "001111"
-	case "-A", "-M":
-		return "110011"
+		return "0001111"
+	case "-A":
+		return "0110011"
+	case "-M":
+		return "1110011"
 	case "D+1":
-		return "011111"
-	case "A+1", "M+1":
-		return "110111"
+		return "0011111"
+	case "A+1":
+		return "0110111"
+	case "M+1":
+		return "1110111"
 	case "D-1":
-		return "001110"
-	case "A-1", "M-1":
-		return "110010"
-	case "D+A", "D+M":
-		return "000010"
-	case "D-M", "D-A":
-		return "010011"
-	case "A-D", "M-D":
-		return "000111"
-	case "D&A", "D&M":
-		return "000000"
-	case "D|A", "D|M":
-		return "010101"
+		return "0001110"
+	case "A-1":
+		return "0110010"
+	case "M-1":
+		return "1110010"
+	case "D+A":
+		return "0000010"
+	case "D+M":
+		return "1000010"
+	case "D-A":
+		return "0010011"
+	case "D-M":
+		return "1010011"
+	case "A-D":
+		return "0000111"
+	case "M-D":
+		return "1000111"
+	case "D&A":
+		return "0000000"
+	case "D&M":
+		return "1000000"
+	case "D|A":
+		return "0010101"
+	case "D|M":
+		return "1010101"
 	}
 	return result
 }
@@ -281,7 +301,7 @@ func (c *Code) destination(v string) string {
 		return "001"
 	case "D":
 		return "010"
-	case "DM":
+	case "DM", "MD":
 		return "011"
 	case "A":
 		return "100"
@@ -354,6 +374,7 @@ const startSecondPathIdx = 16
 
 type SymbolTable struct {
 	symbol          map[string]int // symbol:address
+	firstPathCount  int
 	secondPathCount int
 }
 
@@ -367,21 +388,26 @@ func (s *SymbolTable) AddLabel(symbol string, currentLine int) (bin string) {
 	if val, ok := s.symbol[symbol]; ok {
 		return string(val)
 	}
-	s.symbol[symbol] = currentLine + 1
+	// since Hack assembler start line from 0, don't need to increment for next line reference
+	s.symbol[symbol] = currentLine - s.firstPathCount
+	s.firstPathCount++
 	return string(currentLine)
 }
-func (s *SymbolTable) GetValue(symbol string) (bin string) {
+func (s *SymbolTable) GetValue(symbol string) (address string) {
+	address = symbol
 	// if it is assign address, return the decimal number
 	isNum, _ := regexp.MatchString(`^[0-9]+$`, symbol)
 	if isNum {
-		return symbol
+		return address
 	}
 	if val, ok := s.symbol[symbol]; ok {
-		return string(val)
+		address = strconv.Itoa(val)
+		return address
 	}
 	s.symbol[symbol] = startSecondPathIdx + s.secondPathCount
 	s.secondPathCount++
-	return string(s.symbol[symbol])
+	address = strconv.Itoa(s.symbol[symbol])
+	return address
 }
 
 // ファイルを開いて, その中身を返す
