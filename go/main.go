@@ -10,26 +10,57 @@ import (
 )
 
 func main() {
-	// fmt.Println("please input compile target")
-	// fmt.Scan(&fileName)
 	fileNames := []string{
 		"./asm/Add.asm",
 		"./asm/Max.asm",
+		"./asm/Pong.asm",
+		"./asm/Rect.asm",
 	}
-	fileName := fileNames[0]
-	inputs, err := openFile(fileName)
-	if err != nil {
-		fmt.Println("file open error")
-		return
-	}
-
-	p := NewParser(inputs)
-	s := NewSymbolTable()
-	// register second path
-	setPath(p, s)
-
-	p.Reset()
 	c := Code{}
+	for _, fileName := range fileNames {
+		inputs, err := openFile(fileName)
+		if err != nil {
+			fmt.Println("file open error")
+			return
+		}
+
+		p := NewParser(inputs)
+		s := NewSymbolTable()
+		// register second path
+		setPath(p, s)
+		assemble(p, c, s, fileName)
+	}
+}
+
+// Set symbol table's label path
+// TODO: receive pointer for golang style
+func setPath(p Parser, s SymbolTable) {
+	for {
+		if p.InstructionType() == L_INSTRUCTION {
+			s.AddLabel(p.Label(), p.currentLine)
+		}
+		if !p.HasMoreLines() {
+			break
+		}
+		p.Next()
+	}
+	p.Reset()
+}
+
+func spliceFileName(path string) string {
+	slashIndex := strings.LastIndex(path, "/")
+	if slashIndex == -1 {
+		return ""
+	}
+	dotIndex := strings.LastIndex(path, ".")
+	if dotIndex == -1 || dotIndex < slashIndex {
+		return ""
+	}
+	return path[slashIndex+1 : dotIndex]
+}
+
+// TODO: receive pointer for golang style
+func assemble(p Parser, c Code, s SymbolTable, fileName string) {
 	parsedLine := make([]string, 0)
 	for {
 		binaryStr := ""
@@ -48,22 +79,8 @@ func main() {
 		}
 		p.Next()
 	}
-
-	createFile("main.hack", parsedLine)
-}
-
-// Set symbol table's label path
-// TODO: receive pointer for golang style
-func setPath(p Parser, s SymbolTable) {
-	for {
-		if p.InstructionType() == L_INSTRUCTION {
-			s.AddLabel(p.Label(), p.currentLine)
-		}
-		if !p.HasMoreLines() {
-			break
-		}
-		p.Next()
-	}
+	newFileName := spliceFileName(fileName)
+	createFile(newFileName+".hack", parsedLine)
 }
 
 type InstructionType int
