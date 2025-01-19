@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const MAX_FILE_SIZE = 10_485_760
+
 func main() {
 	fileNames := []string{
 		"./asm/Add.asm",
@@ -370,7 +372,7 @@ func NewSymbolTable() SymbolTable {
 	}
 }
 
-const startSecondPathIdx = 16
+const START_SECOND_PATH_IDX = 16
 
 type SymbolTable struct {
 	symbol          map[string]int // symbol:address
@@ -404,7 +406,7 @@ func (s *SymbolTable) GetValue(symbol string) (address string) {
 		address = strconv.Itoa(val)
 		return address
 	}
-	s.symbol[symbol] = startSecondPathIdx + s.secondPathCount
+	s.symbol[symbol] = START_SECOND_PATH_IDX + s.secondPathCount
 	s.secondPathCount++
 	address = strconv.Itoa(s.symbol[symbol])
 	return address
@@ -419,7 +421,8 @@ func openFile(name string) ([]string, error) {
 	}
 	defer file.Close()
 
-	data := make([]byte, 100000)
+	// 10mb
+	data := make([]byte, MAX_FILE_SIZE)
 	count, err := file.Read(data)
 	if err != nil {
 		fmt.Println(err)
