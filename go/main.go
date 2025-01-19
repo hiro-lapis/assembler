@@ -18,7 +18,7 @@ func main() {
 		"./asm/Pong.asm",
 		"./asm/Rect.asm",
 	}
-	c := Code{}
+	c := &Code{}
 	for _, fileName := range fileNames {
 		inputs, err := openFile(fileName)
 		if err != nil {
@@ -35,8 +35,7 @@ func main() {
 }
 
 // Set symbol table's label path
-// TODO: receive pointer for golang style
-func setPath(p Parser, s SymbolTable) {
+func setPath(p *Parser, s *SymbolTable) {
 	for {
 		if p.InstructionType() == L_INSTRUCTION {
 			s.AddLabel(p.Label(), p.currentLine)
@@ -61,8 +60,7 @@ func spliceFileName(path string) string {
 	return path[slashIndex+1 : dotIndex]
 }
 
-// TODO: receive pointer for golang style
-func assemble(p Parser, c Code, s SymbolTable, fileName string) {
+func assemble(p *Parser, c *Code, s *SymbolTable, fileName string) {
 	parsedLine := make([]string, 0)
 	for {
 		binaryStr := ""
@@ -98,8 +96,7 @@ type Parser struct {
 	currentLine  int
 }
 
-// TODO: return pointer for golang style
-func NewParser(lines []string) Parser {
+func NewParser(lines []string) *Parser {
 	list := make([]string, 0)
 	for _, line := range lines {
 		v := ""
@@ -121,7 +118,7 @@ func NewParser(lines []string) Parser {
 		}
 		list = append(list, v)
 	}
-	return Parser{instructions: list}
+	return &Parser{instructions: list}
 }
 
 func (i InstructionType) String() string {
@@ -340,9 +337,8 @@ func (c *Code) jump(v string) string {
 	return result
 }
 
-// TODO: return pointer for golang style
-func NewSymbolTable() SymbolTable {
-	return SymbolTable{
+func NewSymbolTable() *SymbolTable {
+	return &SymbolTable{
 		// pre-defined symbols
 		symbol: map[string]int{
 			"R0":     0,
