@@ -3,7 +3,8 @@
 //
 // The exercise file will be reloaded when you change one of the lines below!
 // Try adding a new `println!` and check the updated output in the terminal.
-// compile 'rustc' main.rs
+// compile rustc main.rs
+// run cargo run
 fn main() {
     println!(r#"       Welcome to...                      "#);
     println!(r#"                 _   _ _                  "#);
