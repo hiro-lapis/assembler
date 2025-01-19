@@ -13,7 +13,7 @@ func main() {
 	// fmt.Println("please input compile target")
 	// fmt.Scan(&fileName)
 	fileNames := []string{
-		// "./asm/Add.asm",
+		"./asm/Add.asm",
 		"./asm/Max.asm",
 	}
 	fileName := fileNames[0]
@@ -26,15 +26,7 @@ func main() {
 	p := NewParser(inputs)
 	s := NewSymbolTable()
 	// register second path
-	for {
-		if p.InstructionType() == L_INSTRUCTION {
-			s.AddLabel(p.Label(), p.currentLine)
-		}
-		if !p.HasMoreLines() {
-			break
-		}
-		p.Next()
-	}
+	setPath(p, s)
 
 	p.Reset()
 	c := Code{}
@@ -60,6 +52,20 @@ func main() {
 	createFile("main.hack", parsedLine)
 }
 
+// Set symbol table's label path
+// TODO: receive pointer for golang style
+func setPath(p Parser, s SymbolTable) {
+	for {
+		if p.InstructionType() == L_INSTRUCTION {
+			s.AddLabel(p.Label(), p.currentLine)
+		}
+		if !p.HasMoreLines() {
+			break
+		}
+		p.Next()
+	}
+}
+
 type InstructionType int
 
 const (
@@ -73,6 +79,7 @@ type Parser struct {
 	currentLine  int
 }
 
+// TODO: return pointer for golang style
 func NewParser(lines []string) Parser {
 	list := make([]string, 0)
 	for _, line := range lines {
@@ -294,6 +301,7 @@ func (c *Code) jump(v string) string {
 	return result
 }
 
+// TODO: return pointer for golang style
 func NewSymbolTable() SymbolTable {
 	return SymbolTable{
 		// pre-defined symbols
@@ -332,6 +340,7 @@ type SymbolTable struct {
 	secondPathCount int
 }
 
+// ng: number ahead, pre-defined word, (,),@,;
 func (s *SymbolTable) AddLabel(symbol string, currentLine int) (bin string) {
 	// if it is assign address, return the decimal number
 	isNum, _ := regexp.MatchString(`^[0-9]+$`, symbol[1:])
@@ -346,7 +355,7 @@ func (s *SymbolTable) AddLabel(symbol string, currentLine int) (bin string) {
 }
 func (s *SymbolTable) GetValue(symbol string) (bin string) {
 	// if it is assign address, return the decimal number
-	isNum, _ := regexp.MatchString(`^[0-9]+$`, symbol[1:])
+	isNum, _ := regexp.MatchString(`^[0-9]+$`, symbol)
 	if isNum {
 		return symbol
 	}
