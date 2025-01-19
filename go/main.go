@@ -9,23 +9,34 @@ import (
 	"strings"
 )
 
-func main() {
-	// fmt.Println("please input compile target")
-	// fmt.Scan(&fileName)
-	fileNames := []string{
-		// "./asm/Add.asm",
-		"./asm/Max.asm",
-	}
-	fileName := fileNames[0]
-	inputs, err := openFile(fileName)
-	if err != nil {
-		fmt.Println("file open error")
-		return
-	}
+const MAX_FILE_SIZE = 10_485_760
 
-	p := NewParser(inputs)
-	s := NewSymbolTable()
-	// register second path
+func main() {
+	fileNames := []string{
+		"./asm/Add.asm",
+		"./asm/Max.asm",
+		"./asm/Pong.asm",
+		"./asm/Rect.asm",
+	}
+	c := Code{}
+	for _, fileName := range fileNames {
+		inputs, err := openFile(fileName)
+		if err != nil {
+			fmt.Println("file open error")
+			return
+		}
+
+		p := NewParser(inputs)
+		s := NewSymbolTable()
+		// register second path
+		setPath(p, s)
+		assemble(p, c, s, fileName)
+	}
+}
+
+// Set symbol table's label path
+// TODO: receive pointer for golang style
+func setPath(p Parser, s SymbolTable) {
 	for {
 		if p.InstructionType() == L_INSTRUCTION {
 			s.AddLabel(p.Label(), p.currentLine)
@@ -35,9 +46,23 @@ func main() {
 		}
 		p.Next()
 	}
-
 	p.Reset()
-	c := Code{}
+}
+
+func spliceFileName(path string) string {
+	slashIndex := strings.LastIndex(path, "/")
+	if slashIndex == -1 {
+		return ""
+	}
+	dotIndex := strings.LastIndex(path, ".")
+	if dotIndex == -1 || dotIndex < slashIndex {
+		return ""
+	}
+	return path[slashIndex+1 : dotIndex]
+}
+
+// TODO: receive pointer for golang style
+func assemble(p Parser, c Code, s SymbolTable, fileName string) {
 	parsedLine := make([]string, 0)
 	for {
 		binaryStr := ""
@@ -56,8 +81,8 @@ func main() {
 		}
 		p.Next()
 	}
-
-	createFile("main.hack", parsedLine)
+	newFileName := spliceFileName(fileName)
+	createFile(newFileName+".hack", parsedLine)
 }
 
 type InstructionType int
@@ -73,6 +98,7 @@ type Parser struct {
 	currentLine  int
 }
 
+// TODO: return pointer for golang style
 func NewParser(lines []string) Parser {
 	list := make([]string, 0)
 	for _, line := range lines {
@@ -187,7 +213,7 @@ func (p *Parser) Exec(line string) (v string, isA bool) {
 }
 
 const OP_CODE_A = "0"
-const OP_CODE_C = "1110"
+const OP_CODE_C = "111"
 
 type Code struct {
 }
@@ -209,41 +235,61 @@ func (c *Code) computation(v string) string {
 	var result string
 	switch string(v) {
 	case "0":
-		return "101010"
+		return "0101010"
 	case "1":
-		return "111111"
+		return "0111111"
 	case "-1":
-		return "111010"
+		return "0111010"
 	case "D":
-		return "001100"
-	case "A", "M":
-		return "110000"
+		return "0001100"
+	case "A":
+		return "0110000"
+	case "M":
+		return "1110000"
 	case "!D":
 		return "0001101"
-	case "!A", "!M":
-		return "110001"
+	case "!A":
+		return "0110001"
+	case "!M":
+		return "1110001"
 	case "-D":
-		return "001111"
-	case "-A", "-M":
-		return "110011"
+		return "0001111"
+	case "-A":
+		return "0110011"
+	case "-M":
+		return "1110011"
 	case "D+1":
-		return "011111"
-	case "A+1", "M+1":
-		return "110111"
+		return "0011111"
+	case "A+1":
+		return "0110111"
+	case "M+1":
+		return "1110111"
 	case "D-1":
-		return "001110"
-	case "A-1", "M-1":
-		return "110010"
-	case "D+A", "D+M":
-		return "000010"
-	case "D-M", "D-A":
-		return "010011"
-	case "A-D", "M-D":
-		return "000111"
-	case "D&A", "D&M":
-		return "000000"
-	case "D|A", "D|M":
-		return "010101"
+		return "0001110"
+	case "A-1":
+		return "0110010"
+	case "M-1":
+		return "1110010"
+	case "D+A":
+		return "0000010"
+	case "D+M":
+		return "1000010"
+	case "D-A":
+		return "0010011"
+	case "D-M":
+		return "1010011"
+	case "A-D":
+		return "0000111"
+	case "M-D":
+		return "1000111"
+	case "D&A":
+		return "0000000"
+	case "D&M":
+		return "1000000"
+	case "D|A":
+		return "0010101"
+	case "D|M":
+		return "1010101"
 	}
 	return result
 }
@@ -257,7 +303,7 @@ func (c *Code) destination(v string) string {
 		return "001"
 	case "D":
 		return "010"
-	case "DM":
+	case "DM", "MD":
 		return "011"
 	case "A":
 		return "100"
@@ -294,6 +340,7 @@ func (c *Code) jump(v string) string {
 	return result
 }
 
+// TODO: return pointer for golang style
 func NewSymbolTable() SymbolTable {
 	return SymbolTable{
 		// pre-defined symbols
@@ -325,13 +372,15 @@ func NewSymbolTable() SymbolTable {
 	}
 }
 
-const startSecondPathIdx = 16
+const START_SECOND_PATH_IDX = 16
 
 type SymbolTable struct {
 	symbol          map[string]int // symbol:address
+	firstPathCount  int
 	secondPathCount int
 }
 
+// ng: number ahead, pre-defined word, (,),@,;
 func (s *SymbolTable) AddLabel(symbol string, currentLine int) (bin string) {
 	// if it is assign address, return the decimal number
 	isNum, _ := regexp.MatchString(`^[0-9]+$`, symbol[1:])
@@ -341,21 +390,26 @@ func (s *SymbolTable) AddLabel(symbol string, currentLine int) (bin string) {
 	if val, ok := s.symbol[symbol]; ok {
 		return string(val)
 	}
-	s.symbol[symbol] = currentLine + 1
+	// since Hack assembler start line from 0, don't need to increment for next line reference
+	s.symbol[symbol] = currentLine - s.firstPathCount
+	s.firstPathCount++
 	return string(currentLine)
 }
-func (s *SymbolTable) GetValue(symbol string) (bin string) {
+func (s *SymbolTable) GetValue(symbol string) (address string) {
+	address = symbol
 	// if it is assign address, return the decimal number
-	isNum, _ := regexp.MatchString(`^[0-9]+$`, symbol[1:])
+	isNum, _ := regexp.MatchString(`^[0-9]+$`, symbol)
 	if isNum {
-		return symbol
+		return address
 	}
 	if val, ok := s.symbol[symbol]; ok {
-		return string(val)
+		address = strconv.Itoa(val)
+		return address
 	}
-	s.symbol[symbol] = startSecondPathIdx + s.secondPathCount
+	s.symbol[symbol] = START_SECOND_PATH_IDX + s.secondPathCount
 	s.secondPathCount++
-	return string(s.symbol[symbol])
+	address = strconv.Itoa(s.symbol[symbol])
+	return address
 }
 
 // ファイルを開いて, その中身を返す
@@ -367,7 +421,8 @@ func openFile(name string) ([]string, error) {
 	}
 	defer file.Close()
 
-	data := make([]byte, 100000)
+	// 10mb
+	data := make([]byte, MAX_FILE_SIZE)
 	count, err := file.Read(data)
 	if err != nil {
 		fmt.Println(err)

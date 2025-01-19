@@ -4,5 +4,7 @@
 **/Max.asm
 **/Rect.asm
 **/Pong.asm
-**/main.hack
+**/*.hack
 **/main
+**/prog.txt
+**/.DS_Store
