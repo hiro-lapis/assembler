@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
 	"strconv"
@@ -21,14 +22,13 @@ const (
 
 // Auto grader の実行環境v1.13以下での実行を想定
 func main() {
-	// OK[add, static, basic, pointer]
-	// flag.Parse()
-	// fileName := flag.Args()[0]
+	flag.Parse()
+	fileName := flag.Args()[0]
 	// fileName := "SimpleAdd.vm"
 	// fileName := "StaticTest.vm"
 	// fileName := "BasicTest.vm"
-	// fileName := "SimpleTest.vm"
-	fileName := "PointerTest.vm"
+	// fileName := "PointerTest.vm"
+	// fileName := "StackTest.vm"
 	outputFileName := strings.Split(fileName, ".")[0] + ".asm"
 
 	inputs, err := openFile(fileName)
@@ -76,7 +76,7 @@ func openFile(name string) ([]string, error) {
 	}
 	defer file.Close()
 
-	// 10mb unexpected _485_760 at end of statement とエラー出る(v1.13以下?)ので通常のリテラルに変更
+	// grader にて10mb unexpected _485_760 at end of statement とエラー出る(v1.13以下?)ので通常のリテラルに変更
 	maxFileSize := 10485760
 	data := make([]byte, maxFileSize)
 	count, err := file.Read(data)
@@ -200,7 +200,8 @@ func (p *Parser) Arg2() (int, error) {
 }
 
 type CodeWriter struct {
-	vmCodes []string
+	vmCodes    []string
+	labelCount int
 }
 
 func NewCodeWriter() *CodeWriter {
@@ -221,16 +222,6 @@ func NewCodeWriter() *CodeWriter {
 		cmds := setPointer(l[0], l[1])
 		asmLines = append(asmLines, cmds...)
 	}
-	// asmLines = append(asmLines,
-	// 	"CONDITION_TRUE",
-	// 	"M=-1",
-	// 	"@13",
-	// 	"A=M",
-	// 	"CONDITION_TRUE",
-	// 	"M=0",
-	// 	"@13",
-	// 	"A=M",
-	// )
 	return &CodeWriter{
 		vmCodes: asmLines,
 	}
@@ -277,12 +268,7 @@ func (c *CodeWriter) WriteArithmetic(cmd string) {
 		result = append(result, "D=M") // x
 		result = append(result, "A=A+1")
 		result = append(result, "D=D-M") // x - y
-		result = append(result, "M=-1")
-		result = append(result, "@CONDITION_TRUE")
-		result = append(result, "D;JEQ")
-		result = append(result, SP)
-		result = append(result, "A=M")
-		result = append(result, "A=A-1")
+		result = append(result, c.compare(cmd)...)
 	case "gt":
 		result = append(result, SP)
 		result = append(result, "A=M")
@@ -290,29 +276,90 @@ func (c *CodeWriter) WriteArithmetic(cmd string) {
 		result = append(result, "A=A-1")
 		result = append(result, "D=M") // x
 		result = append(result, "A=A+1")
-
 		result = append(result, "D=D-M") // x - y
-		result = append(result, "M=-1")
-		result = append(result, "@GT_TRUE")
-		result = append(result, "D;JGT")
+		result = append(result, c.compare(cmd)...)
+	case "lt":
 		result = append(result, SP)
 		result = append(result, "A=M")
 		result = append(result, "A=A-1")
 		result = append(result, "A=A-1")
-		result = append(result, "M=0")
-		result = append(result, "(GT_TRUE)")
+		result = append(result, "D=M") // x
+		result = append(result, "A=A+1")
+		result = append(result, "D=D-M") // x - y
+		result = append(result, c.compare(cmd)...)
+	case "and":
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "A=A-1")
+		result = append(result, "D=M") // y
+		result = append(result, "A=A-1")
+		result = append(result, "D=D&M") // x & y
+		result = append(result, "M=D")   // x = x & y
 		result = append(result, SP)
 		result = append(result, "M=M-1")
-	case "lt":
-		break
-	case "and":
-		break
 	case "or":
-		break
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "A=A-1")
+		result = append(result, "D=M") // y
+		result = append(result, "A=A-1")
+		result = append(result, "D=D|M") // x | y
+		result = append(result, "M=D")   // x = x | y
+		result = append(result, SP)
+		result = append(result, "M=M-1")
 	case "not":
-		break
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "A=A-1")
+		result = append(result, "D=M")  // y
+		result = append(result, "M=!D") // !y
 	}
 	c.vmCodes = append(c.vmCodes, result...)
+}
+
+func (c *CodeWriter) compare(cmd string) []string {
+	l := make([]string, 0)
+	// labelはユニークにしないとassembler error 発生するため都度ユニークなappendinx をつける
+	// generate unique label
+	labelCount := strconv.Itoa(c.labelCount)
+	var label, fLabel, jump string
+	c.labelCount++
+	switch string(cmd) {
+	case "eq":
+		label = "EQ_TRUE"
+		fLabel = "EQ_FALSE"
+		jump = "JEQ"
+	case "gt":
+		label = "GT_TRUE"
+		fLabel = "GT_FALSE"
+		jump = "JGT"
+	case "lt":
+		label = "LT_TRUE"
+		fLabel = "LT_FALSE"
+		jump = "JLT"
+	}
+	label += "_" + labelCount
+	fLabel += "_" + labelCount
+	l = append(l, "A=A-1") // y の位置からxへ移動
+	// 条件つきjumpの処理は判定の結果ジャンプしなくてもアクセスmemory が変わってしまうためtrue/false両方について-1/0を書く処理が必要
+	// trueの場合
+	l = append(l, "M=-1") // trueの場合の値は@label設定の前にセットしておく
+	l = append(l, "@"+label)
+	l = append(l, "D;"+jump)
+	// falseの場合
+	l = append(l, "@"+fLabel)
+	l = append(l, "0;JMP")
+	l = append(l, "("+fLabel+")")
+	l = append(l, SP)
+	l = append(l, "A=M")
+	l = append(l, "A=A-1")
+	l = append(l, "A=A-1")
+	l = append(l, "M=0")
+	// trueの場合,jump前のM=-1設定を保持してそのまま進む
+	l = append(l, "("+label+")")
+	l = append(l, SP)
+	l = append(l, "M=M-1")
+	return l
 }
 
 // get segment pointer from 2nd argument
