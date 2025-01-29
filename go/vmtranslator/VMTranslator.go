@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"os"
 	"strconv"
@@ -22,135 +21,50 @@ const (
 
 // Auto grader の実行環境v1.13以下での実行を想定
 func main() {
-	flag.Parse()
-	fileName := flag.Args()[0]
+	// OK[add, static, basic, pointer]
+	// flag.Parse()
+	// fileName := flag.Args()[0]
 	// fileName := "SimpleAdd.vm"
 	// fileName := "StaticTest.vm"
+	// fileName := "BasicTest.vm"
 	// fileName := "SimpleTest.vm"
-	outputFileName := fileName[:len(fileName)-3] + ".asm"
-	fmt.Println(outputFileName)
+	fileName := "PointerTest.vm"
+	outputFileName := strings.Split(fileName, ".")[0] + ".asm"
 
 	inputs, err := openFile(fileName)
 	if err != nil {
 		fmt.Println("file open error")
 		return
 	}
-	lines := make([]string, 0)
-	for _, v := range inputs {
-		if v == "" || v == "//" {
-			continue
+
+	p := NewParser(inputs)
+	c := NewCodeWriter()
+	// if more line
+
+	for p.HasMoreCommands() {
+		switch p.CommandType() {
+		case C_ARITHMETIC:
+			c.WriteArithmetic(p.Arg1())
+		case C_PUSH:
+			arg2, err := p.Arg2()
+			if err != nil {
+				fmt.Println(err)
+				break
+			}
+			c.WritePushPop(C_PUSH, p.Arg1(), arg2)
+		case C_POP:
+			arg2, err := p.Arg2()
+			if err != nil {
+				fmt.Println(err)
+				break
+			}
+			c.WritePushPop(C_POP, p.Arg1(), arg2)
 		}
-		lines = append(lines, strings.TrimSpace(v))
+		p.advance()
 	}
 
-	asmLines := make([]string, 0)
-	initAsm := [][]string{
-		{"0", "256"},
-		{"1", "300"},
-		{"2", "400"},
-		{"3", "3000"},
-		{"4", "3010"},
-		{"5", "5"},
-		{"6", "16"},
-	}
-	for _, l := range initAsm {
-		cmds := setPointer(l[0], l[1])
-		asmLines = append(asmLines, cmds...)
-	}
-
-	for _, l := range lines {
-		cmd := strings.Split(l, " ")
-
-		if len(cmd) == 3 {
-			cmds := assembleArithmetic(cmd[0], cmd[1], cmd[2])
-			asmLines = append(asmLines, cmds...)
-		} else if len(cmd) == 1 {
-			cmds := assembleLogistic(cmd[0])
-			asmLines = append(asmLines, cmds...)
-		}
-	}
+	asmLines := c.AssembledCodes()
 	createFile(outputFileName, asmLines)
-}
-
-func setPointer(setTarget, value string) []string {
-	return []string{"@" + value, "D=A", "@" + setTarget, "M=D"}
-}
-func assembleArithmetic(cmd, segment, index string) []string {
-	result := make([]string, 0)
-	switch cmd {
-	case "push":
-		if segment == "constant" {
-			result = append(result, "@"+index)
-			result = append(result, "D=A")
-			result = append(result, SP)
-			result = append(result, "A=M")
-			result = append(result, "M=D")
-			result = append(result, SP)
-			result = append(result, "M=M+1")
-		} else if segment == "static" {
-			result = append(result, STT)
-			result = append(result, "A=M")
-			i, _ := strconv.Atoi(index)
-			for i > 0 {
-				result = append(result, "A=A+1")
-				i--
-			}
-			result = append(result, "D=M")
-			result = append(result, SP)
-			result = append(result, "A=M")
-			result = append(result, "M=D")
-			result = append(result, SP)
-			result = append(result, "M=M+1")
-		}
-	case "pop":
-		if segment == "static" {
-			result = append(result, SP)
-			result = append(result, "A=M-1")
-			result = append(result, "D=M")
-			result = append(result, STT)
-			result = append(result, "A=M")
-			i, _ := strconv.Atoi(index)
-			for i > 0 {
-				result = append(result, "A=A+1")
-				i--
-			}
-			result = append(result, "M=D")
-			result = append(result, SP)
-			result = append(result, "M=M-1")
-		}
-	}
-	return result
-}
-func assembleLogistic(cmd string) []string {
-	result := make([]string, 0)
-	switch cmd {
-	case "add":
-		result = append(result, SP)
-		result = append(result, "A=M")
-		result = append(result, "D=M") // D = *SP
-		result = append(result, "A=A-1")
-		result = append(result, "A=A-1")
-		result = append(result, "D=M")
-		result = append(result, "A=A+1")
-		result = append(result, "D=D+M")
-		result = append(result, "A=A-1")
-		result = append(result, "M=D")
-		result = append(result, SP)
-		result = append(result, "M=M-1")
-	case "sub":
-		result = append(result, SP)
-		result = append(result, "A=M")
-		result = append(result, "A=A-1")
-		result = append(result, "A=A-1")
-		result = append(result, "D=M")   // x(stack 2つ目の値)
-		result = append(result, "A=A+1") // y(stack 1つ目の値)
-		result = append(result, "D=D-M") // y - x
-		result = append(result, "A=A-1")
-		result = append(result, "M=D") // x = y - x(yのメモリは上書き対象)
-		result = append(result, SP)
-		result = append(result, "M=M-1")
-	}
-	return result
 }
 
 // return file contents without formating
@@ -191,4 +105,286 @@ func createFile(name string, data []string) {
 		w.WriteString(data[i] + "\n")
 	}
 	w.Flush()
+}
+
+type Parser struct {
+	commands    []string
+	currentLine int
+}
+
+func NewParser(lines []string) *Parser {
+	list := make([]string, 0)
+	for _, line := range lines {
+		v := ""
+		if len(line) == 0 {
+			continue
+		}
+		index := strings.Index(line, "//")
+		// skip comment
+		if index == 0 {
+			continue
+		} else if index != -1 {
+			v = line[:index]
+		} else {
+			v = line
+		}
+		v = strings.TrimSpace(v)
+		if len(v) == 0 {
+			continue
+		}
+		list = append(list, v)
+	}
+	return &Parser{commands: list, currentLine: 0}
+}
+
+func (p *Parser) HasMoreCommands() bool {
+	maxIdx := len(p.commands) - 1
+	return maxIdx >= p.currentLine
+}
+
+func (p *Parser) advance() {
+	if p.HasMoreCommands() {
+		p.currentLine++
+	}
+}
+
+type CommandType int
+
+const (
+	C_ARITHMETIC CommandType = iota
+	C_PUSH
+	C_POP
+	C_LABEL
+	C_GOTO
+	C_IF
+	C_FUNCTION
+	C_RETURN
+	C_CALL
+)
+
+func (p *Parser) CommandType() CommandType {
+	cmds := strings.Split(p.commands[p.currentLine], " ")
+	if len(cmds) == 1 {
+		return C_ARITHMETIC
+	}
+	cmd := cmds[0]
+	switch string(cmd) {
+	case "push":
+		return C_PUSH
+	case "pop":
+		return C_POP
+	}
+	// TODO: implement other command types
+	return C_ARITHMETIC
+}
+func (p *Parser) Arg1() string {
+	if p.CommandType() == C_RETURN {
+		return ""
+	}
+	cmds := strings.Split(p.commands[p.currentLine], " ")
+	if len(cmds) == 1 {
+		return cmds[0]
+	}
+	return cmds[1]
+}
+func (p *Parser) Arg2() (int, error) {
+	if p.CommandType() != C_PUSH && p.CommandType() != C_POP {
+		return -1, fmt.Errorf("Arg2 should be called only push or pop")
+	}
+	cmds := strings.Split(p.commands[p.currentLine], " ")
+	if len(cmds) == 1 {
+		return -1, fmt.Errorf("Arg2 should be called only push or pop")
+	}
+	num, _ := strconv.Atoi(cmds[2])
+	return num, nil
+}
+
+type CodeWriter struct {
+	vmCodes []string
+}
+
+func NewCodeWriter() *CodeWriter {
+	initAsm := [][]string{
+		{"0", "256"},
+		{"1", "300"},
+		{"2", "400"},
+		{"3", "3000"},
+		{"4", "3010"},
+		{"5", "5"},
+		{"6", "16"},
+	}
+	setPointer := func(setTarget, value string) []string {
+		return []string{"@" + value, "D=A", "@" + setTarget, "M=D"}
+	}
+	asmLines := make([]string, 0)
+	for _, l := range initAsm {
+		cmds := setPointer(l[0], l[1])
+		asmLines = append(asmLines, cmds...)
+	}
+	// asmLines = append(asmLines,
+	// 	"CONDITION_TRUE",
+	// 	"M=-1",
+	// 	"@13",
+	// 	"A=M",
+	// 	"CONDITION_TRUE",
+	// 	"M=0",
+	// 	"@13",
+	// 	"A=M",
+	// )
+	return &CodeWriter{
+		vmCodes: asmLines,
+	}
+}
+func (c *CodeWriter) WriteArithmetic(cmd string) {
+	result := make([]string, 0)
+	switch string(cmd) {
+	case "add":
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "D=M") // D = *SP
+		result = append(result, "A=A-1")
+		result = append(result, "A=A-1")
+		result = append(result, "D=M")
+		result = append(result, "A=A+1")
+		result = append(result, "D=D+M")
+		result = append(result, "A=A-1")
+		result = append(result, "M=D")
+		result = append(result, SP)
+		result = append(result, "M=M-1")
+	case "sub":
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "A=A-1")
+		result = append(result, "A=A-1")
+		result = append(result, "D=M")   // x(stack 2つ目の値)
+		result = append(result, "A=A+1") // y(stack 1つ目の値)
+		result = append(result, "D=D-M") // y - x
+		result = append(result, "A=A-1")
+		result = append(result, "M=D") // x = y - x(yのメモリは上書き対象)
+		result = append(result, SP)
+		result = append(result, "M=M-1")
+	case "neg":
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "A=A-1")
+		result = append(result, "D=M") // D = *SP
+		result = append(result, "M=-D")
+	case "eq":
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "A=A-1")
+		result = append(result, "A=A-1")
+		result = append(result, "D=M") // x
+		result = append(result, "A=A+1")
+		result = append(result, "D=D-M") // x - y
+		result = append(result, "M=-1")
+		result = append(result, "@CONDITION_TRUE")
+		result = append(result, "D;JEQ")
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "A=A-1")
+	case "gt":
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "A=A-1")
+		result = append(result, "A=A-1")
+		result = append(result, "D=M") // x
+		result = append(result, "A=A+1")
+
+		result = append(result, "D=D-M") // x - y
+		result = append(result, "M=-1")
+		result = append(result, "@GT_TRUE")
+		result = append(result, "D;JGT")
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "A=A-1")
+		result = append(result, "A=A-1")
+		result = append(result, "M=0")
+		result = append(result, "(GT_TRUE)")
+		result = append(result, SP)
+		result = append(result, "M=M-1")
+	case "lt":
+		break
+	case "and":
+		break
+	case "or":
+		break
+	case "not":
+		break
+	}
+	c.vmCodes = append(c.vmCodes, result...)
+}
+
+// get segment pointer from 2nd argument
+func (c *CodeWriter) getSecondArgSegment(segment string, index int) string {
+	if segment == "pointer" {
+		if index == 0 {
+			return THIS
+		}
+		return THAT
+	}
+	switch segment {
+	case "local":
+		return LCL
+	case "argument":
+		return ARG
+	case "temp":
+		return TMP
+	case "this":
+		return THIS
+	case "that":
+		return THAT
+	case "static":
+		return STT
+	}
+
+	return ""
+}
+
+func (c *CodeWriter) getSecondArgSegmentIndex(segment string, i int) []string {
+	l := make([]string, 0)
+	if segment != "pointer" {
+		l = append(l, "A=M")
+		idx := i
+		for idx > 0 {
+			l = append(l, "A=A+1")
+			idx--
+		}
+	}
+	return l
+}
+func (c *CodeWriter) WritePushPop(cmdType CommandType, segment string, i int) {
+	result := make([]string, 0)
+	index := strconv.Itoa(i)
+
+	switch cmdType {
+	case C_PUSH:
+		if segment == "constant" {
+			result = append(result, "@"+(index))
+			result = append(result, "D=A")
+		} else {
+			result = append(result, c.getSecondArgSegment(segment, i))
+			result = append(result, c.getSecondArgSegmentIndex(segment, i)...)
+			result = append(result, "D=M")
+		}
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "M=D")
+		result = append(result, SP)
+		result = append(result, "M=M+1")
+	case C_POP:
+		result = append(result, SP)
+		result = append(result, "A=M-1")
+		result = append(result, "D=M")
+		result = append(result, c.getSecondArgSegment(segment, i))
+		result = append(result, c.getSecondArgSegmentIndex(segment, i)...)
+		result = append(result, "M=D")
+		result = append(result, SP)
+		result = append(result, "M=M-1")
+	}
+	c.vmCodes = append(c.vmCodes, result...)
+}
+
+func (c *CodeWriter) AssembledCodes() []string {
+	return c.vmCodes
 }
