@@ -4,6 +4,11 @@
 **/Max.asm
 **/Rect.asm
 **/Pong.asm
+**/SimpleAdd.vm
+**/StackTest.vm
+**/BasicTest.vm
+**/PointerTest.vm
+**/StackTest.vm
 **/*.hack
 **/main
 **/prog.txt
