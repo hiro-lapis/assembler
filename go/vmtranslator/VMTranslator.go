@@ -19,6 +19,21 @@ const (
 	STT   = "@6" // 16-255
 	POINT = ""
 )
+
+type CommandType int
+
+const (
+	C_ARITHMETIC CommandType = iota // arithmetic command
+	C_PUSH                          // push segment i
+	C_POP                           // pop segment i
+	C_LABEL                         // define label
+	C_GOTO                          // jump to label unconditionally
+	C_IF                            // retrive topmost value of stack and jump if it is not 0
+	C_FUNCTION                      // function declaration
+	C_RETURN                        // return from function
+	C_CALL                          // function call
+)
+
 const maxFileSize = 10485760
 
 // Auto grader の実行環境v1.13以下での実行を想定
@@ -67,8 +82,8 @@ func main() {
 	}
 }
 
-func compile(fileName string) error {
-	p, err := NewParser(fileName)
+func compile(filePath string) error {
+	p, err := NewParser(filePath)
 	if err != nil {
 		fmt.Println("file open eror")
 	}
@@ -92,17 +107,24 @@ func compile(fileName string) error {
 				break
 			}
 			c.WritePushPop(C_POP, p.Arg1(), arg2)
+		case C_LABEL:
+			c.WriteLabel(p.LabelName())
+		case C_IF:
+			c.WriteIf(p.LabelName())
 		}
+
 		p.advance()
 	}
 
 	asmLines := c.AssembledCodes()
-	outputFileName := strings.Split(fileName, ".")[0] + ".asm"
-	createFile(outputFileName, asmLines)
+	dirPath := filePath[:strings.LastIndex(filePath, "/")+1]
+	outputFileName := filePath[strings.LastIndex(filePath, "/")+1:strings.LastIndex(filePath, ".")] + ".asm"
+	createFile(dirPath, outputFileName, asmLines)
+	fmt.Println("output file: ", dirPath+outputFileName)
 	return nil
 }
-func createFile(name string, data []string) {
-	file, err := os.Create(name)
+func createFile(dir, fileName string, data []string) {
+	file, err := os.Create(dir + fileName)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -176,20 +198,6 @@ func (p *Parser) advance() {
 	}
 }
 
-type CommandType int
-
-const (
-	C_ARITHMETIC CommandType = iota
-	C_PUSH
-	C_POP
-	C_LABEL
-	C_GOTO
-	C_IF
-	C_FUNCTION
-	C_RETURN
-	C_CALL
-)
-
 func (p *Parser) CommandType() CommandType {
 	cmds := strings.Split(p.commands[p.currentLine], " ")
 	if len(cmds) == 1 {
@@ -201,6 +209,10 @@ func (p *Parser) CommandType() CommandType {
 		return C_PUSH
 	case "pop":
 		return C_POP
+	case "label":
+		return C_LABEL
+	case "if-goto":
+		return C_IF
 	}
 	// TODO: implement other command types
 	return C_ARITHMETIC
@@ -225,6 +237,14 @@ func (p *Parser) Arg2() (int, error) {
 	}
 	num, _ := strconv.Atoi(cmds[2])
 	return num, nil
+}
+func (p *Parser) LabelName() string {
+	cmd := p.CommandType()
+	fmt.Println(cmd)
+	if p.CommandType() != C_LABEL && p.CommandType() != C_IF {
+		return ""
+	}
+	return strings.Split(p.commands[p.currentLine], " ")[1]
 }
 
 type CodeWriter struct {
@@ -457,6 +477,19 @@ func (c *CodeWriter) WritePushPop(cmdType CommandType, segment string, i int) {
 		result = append(result, SP)
 		result = append(result, "M=M-1")
 	}
+	c.vmCodes = append(c.vmCodes, result...)
+}
+
+func (c *CodeWriter) WriteLabel(arg2 string) {
+	c.vmCodes = append(c.vmCodes, "("+arg2+")")
+}
+func (c *CodeWriter) WriteIf(arg2 string) {
+	result := make([]string, 0)
+	result = append(result, SP)
+	result = append(result, "A=M-1")
+	result = append(result, "D=M")
+	result = append(result, "@"+arg2)
+	result = append(result, "D;JGT")
 	c.vmCodes = append(c.vmCodes, result...)
 }
 
