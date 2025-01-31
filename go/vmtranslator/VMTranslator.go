@@ -44,7 +44,8 @@ func main() {
 		// fmt.Println("please input file name")
 		// return
 		// TODO remove following code
-		fileName = "./project8/ProgramFlow/BasicLoop/BasicLoop.vm"
+		// fileName = "./project8/ProgramFlow/BasicLoop/"
+		fileName = "./project8/ProgramFlow/FibonacciSeries/"
 		// fileName = "StaticTest.vm"
 		// fileName := flag.Args()
 		// fileName := "SimpleAdd.vm"
@@ -69,10 +70,15 @@ func main() {
 			return
 		}
 		for _, f := range files {
-			if strings.Contains(f.Name(), ".vm") {
-				if err = compile(fileName + "/" + f.Name()); err != nil {
-					fmt.Println(err)
-				}
+			if !strings.Contains(f.Name(), ".vm") {
+				continue
+			}
+			slash := ""
+			if string(fileName[len(fileName)-1]) != "/" {
+				slash = fileName + "/"
+			}
+			if err = compile(fileName + slash + f.Name()); err != nil {
+				fmt.Println(err)
 			}
 		}
 	} else {
@@ -111,6 +117,8 @@ func compile(filePath string) error {
 			c.WriteLabel(p.LabelName())
 		case C_IF:
 			c.WriteIf(p.LabelName())
+		case C_GOTO:
+			c.WriteGoto(p.LabelName())
 		}
 
 		p.advance()
@@ -213,6 +221,8 @@ func (p *Parser) CommandType() CommandType {
 		return C_LABEL
 	case "if-goto":
 		return C_IF
+	case "goto":
+		return C_GOTO
 	}
 	// TODO: implement other command types
 	return C_ARITHMETIC
@@ -241,7 +251,7 @@ func (p *Parser) Arg2() (int, error) {
 func (p *Parser) LabelName() string {
 	cmd := p.CommandType()
 	fmt.Println(cmd)
-	if p.CommandType() != C_LABEL && p.CommandType() != C_IF {
+	if p.CommandType() != C_LABEL && p.CommandType() != C_IF && p.CommandType() != C_GOTO {
 		return ""
 	}
 	return strings.Split(p.commands[p.currentLine], " ")[1]
@@ -489,7 +499,13 @@ func (c *CodeWriter) WriteIf(arg2 string) {
 	result = append(result, "A=M-1")
 	result = append(result, "D=M")
 	result = append(result, "@"+arg2)
-	result = append(result, "D;JGT")
+	result = append(result, "D;JGT") // jump if true(D>0)
+	c.vmCodes = append(c.vmCodes, result...)
+}
+func (c *CodeWriter) WriteGoto(arg2 string) {
+	result := make([]string, 0)
+	result = append(result, "@"+arg2)
+	result = append(result, "0;JMP") // uncoditional jump
 	c.vmCodes = append(c.vmCodes, result...)
 }
 
