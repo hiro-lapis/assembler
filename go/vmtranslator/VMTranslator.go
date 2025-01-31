@@ -19,27 +19,60 @@ const (
 	STT   = "@6" // 16-255
 	POINT = ""
 )
+const maxFileSize = 10485760
 
 // Auto grader の実行環境v1.13以下での実行を想定
 func main() {
 	flag.Parse()
-	fileName := flag.Args()[0]
-	// fileName := "SimpleAdd.vm"
-	// fileName := "StaticTest.vm"
-	// fileName := "BasicTest.vm"
-	// fileName := "PointerTest.vm"
-	// fileName := "StackTest.vm"
-	outputFileName := strings.Split(fileName, ".")[0] + ".asm"
-
-	inputs, err := openFile(fileName)
-	if err != nil {
-		fmt.Println("file open error")
-		return
+	fileName := ""
+	if len(flag.Args()) == 0 {
+		// fmt.Println("please input file name")
+		// return
+		// TODO remove following code
+		fileName = "./project8/ProgramFlow/BasicLoop/BasicLoop.vm"
+		// fileName = "StaticTest.vm"
+		// fileName := flag.Args()
+		// fileName := "SimpleAdd.vm"
+		// fileName := "BasicTest.vm"
+		// fileName := "PointerTest.vm"
+		// fileName := "StackTest.vm"
+	} else if len(flag.Args()) > 1 {
+		fmt.Println("too many arguments. we use only 1st argument")
 	}
+	if fileName == "" {
+		fileName = flag.Args()[0]
+	}
+	isDir := false
+	if !strings.Contains(fileName, ".vm") {
+		isDir = true
+	}
+	// コマンドでディレクトリを指定された時は、ディレクトリ内のvmファイルを全て変換する
+	if isDir {
+		files, err := os.ReadDir(fileName)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		for _, f := range files {
+			if strings.Contains(f.Name(), ".vm") {
+				if err = compile(fileName + "/" + f.Name()); err != nil {
+					fmt.Println(err)
+				}
+			}
+		}
+	} else {
+		if err := compile(fileName); err != nil {
+			fmt.Println(err)
+		}
+	}
+}
 
-	p := NewParser(inputs)
+func compile(fileName string) error {
+	p, err := NewParser(fileName)
+	if err != nil {
+		fmt.Println("file open eror")
+	}
 	c := NewCodeWriter()
-	// if more line
 
 	for p.HasMoreCommands() {
 		switch p.CommandType() {
@@ -64,34 +97,10 @@ func main() {
 	}
 
 	asmLines := c.AssembledCodes()
+	outputFileName := strings.Split(fileName, ".")[0] + ".asm"
 	createFile(outputFileName, asmLines)
+	return nil
 }
-
-// return file contents without formating
-func openFile(name string) ([]string, error) {
-	file, err := os.Open(name)
-	if err != nil {
-		fmt.Println(err)
-		return nil, err
-	}
-	defer file.Close()
-
-	// grader にて10mb unexpected _485_760 at end of statement とエラー出る(v1.13以下?)ので通常のリテラルに変更
-	maxFileSize := 10485760
-	data := make([]byte, maxFileSize)
-	count, err := file.Read(data)
-	if err != nil {
-		fmt.Println(err)
-		return nil, err
-	}
-	if count == 0 {
-		err := fmt.Errorf("error: file is empty")
-		return nil, err
-	}
-	list := strings.Split(string(data[:count]), "\n")
-	return list, nil
-}
-
 func createFile(name string, data []string) {
 	file, err := os.Create(name)
 	if err != nil {
@@ -112,7 +121,26 @@ type Parser struct {
 	currentLine int
 }
 
-func NewParser(lines []string) *Parser {
+func NewParser(fileName string) (*Parser, error) {
+	file, err := os.Open(fileName)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// grader にて10mb unexpected _485_760 at end of statement とエラー出る(v1.13以下?)ので通常のリテラルに変更
+	data := make([]byte, maxFileSize)
+	count, err := file.Read(data)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	if count == 0 {
+		err := fmt.Errorf("error: file is empty")
+		return nil, err
+	}
+	lines := strings.Split(string(data[:count]), "\n")
+
 	list := make([]string, 0)
 	for _, line := range lines {
 		v := ""
@@ -134,7 +162,7 @@ func NewParser(lines []string) *Parser {
 		}
 		list = append(list, v)
 	}
-	return &Parser{commands: list, currentLine: 0}
+	return &Parser{commands: list, currentLine: 0}, nil
 }
 
 func (p *Parser) HasMoreCommands() bool {
