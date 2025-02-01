@@ -62,9 +62,18 @@ func main() {
 		fileName = flag.Args()[0]
 	}
 	isDir := false
+	outPutPath := ""
+	outPutFileName := ""
 	if !strings.Contains(fileName, ".vm") {
 		isDir = true
+		outPutPath = fileName
+		outPutFileName = fileName[strings.LastIndex(fileName, "/")+1:]
+	} else {
+		outPutPath = fileName[:strings.LastIndex(fileName, "/")+1]
+		outPutFileName = fileName[strings.LastIndex(fileName, "/")+1:]
+		outPutFileName = outPutFileName[:strings.LastIndex(outPutFileName, ".")]
 	}
+	c := NewCodeWriter()
 	// コマンドでディレクトリを指定された時は、ディレクトリ内のvmファイルを全て変換する
 	if isDir {
 		files, err := os.ReadDir(fileName)
@@ -80,25 +89,24 @@ func main() {
 			if string(fileName[len(fileName)-1]) != "/" {
 				slash = "/"
 			}
-			fName := f.Name()
-			fmt.Println(fName)
-			if err = compile(fileName + slash + f.Name()); err != nil {
+			if err = compile(c, fileName+slash+f.Name()); err != nil {
 				fmt.Println(err)
 			}
 		}
 	} else {
-		if err := compile(fileName); err != nil {
+		if err := compile(c, fileName); err != nil {
 			fmt.Println(err)
 		}
 	}
+	c.CloseFile(outPutPath, outPutFileName)
 }
 
-func compile(filePath string) error {
+func compile(c *CodeWriter, filePath string) error {
 	p, err := NewParser(filePath)
 	if err != nil {
 		fmt.Println("file open eror")
 	}
-	c := NewCodeWriter()
+	// c := NewCodeWriter()
 
 	for p.HasMoreCommands() {
 		switch p.CommandType() {
@@ -145,27 +153,28 @@ func compile(filePath string) error {
 		p.advance()
 	}
 
-	asmLines := c.AssembledCodes()
-	dirPath := filePath[:strings.LastIndex(filePath, "/")+1]
-	outputFileName := filePath[strings.LastIndex(filePath, "/")+1:strings.LastIndex(filePath, ".")] + ".asm"
-	createFile(dirPath, outputFileName, asmLines)
-	fmt.Println("output file: ", dirPath+outputFileName)
+	// asmLines := c.AssembledCodes()
+	// dirPath := filePath[:strings.LastIndex(filePath, "/")+1]
+	// outputFileName := filePath[strings.LastIndex(filePath, "/")+1:strings.LastIndex(filePath, ".")] + ".asm"
+	// createFile(dirPath, outputFileName, asmLines)
+	// fmt.Println("output file: ", dirPath+outputFileName)
 	return nil
 }
-func createFile(dir, fileName string, data []string) {
-	file, err := os.Create(dir + fileName)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	defer file.Close()
 
-	w := bufio.NewWriter(file)
-	for i := 0; i < len(data); i++ {
-		w.WriteString(data[i] + "\n")
-	}
-	w.Flush()
-}
+// func createFile(dir, fileName string, data []string) {
+// 	file, err := os.Create(dir + fileName)
+// 	if err != nil {
+// 		fmt.Println(err)
+// 		return
+// 	}
+// 	defer file.Close()
+
+// 	w := bufio.NewWriter(file)
+// 	for i := 0; i < len(data); i++ {
+// 		w.WriteString(data[i] + "\n")
+// 	}
+// 	w.Flush()
+// }
 
 type Parser struct {
 	commands    []string
@@ -279,7 +288,7 @@ type CodeWriter struct {
 
 func NewCodeWriter() *CodeWriter {
 	initAsm := [][]string{
-		// {"0", "256"},
+		{"0", "256"},
 		// {"1", "300"},
 		// {"2", "400"},
 		// {"3", "3000"},
@@ -295,10 +304,44 @@ func NewCodeWriter() *CodeWriter {
 		cmds := setPointer(l[0], l[1])
 		asmLines = append(asmLines, cmds...)
 	}
-	return &CodeWriter{
+	// codes順を保つため instance 化後にSys.initを実行
+	c := &CodeWriter{
 		vmCodes: asmLines,
 	}
+	c.WriteCall("Sys.init", 0)
+	return c
 }
+
+func (c *CodeWriter) CloseFile(filePath, fileName string) {
+	asmLines := c.AssembledCodes()
+	dir := filePath
+	if (string)(dir[len(dir)-1]) != "/" {
+		dir += "/"
+	}
+	extentionIdx := strings.LastIndex(fileName, ".")
+	outputFileName := ""
+	if extentionIdx != -1 {
+		outputFileName = fileName[:strings.LastIndex(fileName, ".")] + ".asm"
+	} else {
+		outputFileName = fileName + ".asm"
+	}
+
+	// createFile(dir, outputFileName, asmLines)
+	file, err := os.Create(dir + outputFileName)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer file.Close()
+
+	w := bufio.NewWriter(file)
+	for i := 0; i < len(asmLines); i++ {
+		w.WriteString(asmLines[i] + "\n")
+	}
+	w.Flush()
+	fmt.Println("output file: ", dir+outputFileName)
+}
+
 func (c *CodeWriter) WriteArithmetic(cmd string) {
 	result := make([]string, 0)
 	switch string(cmd) {
@@ -517,7 +560,7 @@ func (c *CodeWriter) WriteIf(arg2 string) {
 	result = append(result, "A=M-1")
 	result = append(result, "D=M")
 	result = append(result, "@"+arg2)
-	result = append(result, "D;JGT") // jump if true(D>0)
+	result = append(result, "D;JNE") // jump if true(D!0)(JMPだとバグる)
 	c.vmCodes = append(c.vmCodes, result...)
 }
 func (c *CodeWriter) WriteGoto(arg2 string) {
@@ -526,10 +569,10 @@ func (c *CodeWriter) WriteGoto(arg2 string) {
 	result = append(result, "0;JMP") // uncoditional jump
 	c.vmCodes = append(c.vmCodes, result...)
 }
-func (c *CodeWriter) WriteFunction(arg1 string, arg2 int) {
-	c.WriteLabel(arg1)
+func (c *CodeWriter) WriteFunction(funcName string, localValCount int) {
+	c.WriteLabel(funcName)
 	result := make([]string, 0)
-	for i := 0; i < arg2; i++ { // initialize local variables
+	for i := 0; i < localValCount; i++ { // initialize local variables
 		result = append(result, SP)
 		result = append(result, "A=M")
 		result = append(result, "M=0")
