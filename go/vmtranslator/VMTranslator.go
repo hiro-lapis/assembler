@@ -10,20 +10,13 @@ import (
 )
 
 const (
-	SP   = "@0" // 256
-	LCL  = "@1" // 300
-	ARG  = "@2" // 400
-	THIS = "@3" // 3000
-	THAT = "@4" // 3010
-	TMP  = "@5" // 5-12
-	STT  = "@6" // 16-255
-	// SP    = "@0" // 256
-	// LCL   = "@1" // 300
-	// ARG   = "@2" // 400
-	// THIS  = "@3" // 3000
-	// THAT  = "@4" // 3010
-	// TMP   = "@5" // 5-12
-	// STT   = "@6" // 16-255
+	SP    = "@0" // 256
+	LCL   = "@1" // 300
+	ARG   = "@2" // 400
+	THIS  = "@3" // 3000
+	THAT  = "@4" // 3010
+	TMP   = "@5" // 5-12
+	STT   = "@6" // 16-255
 	POINT = ""
 )
 
@@ -53,7 +46,9 @@ func main() {
 		// TODO remove following code
 		// fileName = "./project8/ProgramFlow/BasicLoop/"
 		// fileName = "./project8/ProgramFlow/FibonacciSeries/"
-		fileName = "./project8/FunctionCalls/SimpleFunction"
+		// fileName = "./project8/FunctionCalls/SimpleFunction"
+		// fileName = "./project8/FunctionCalls/NestedCall"
+		fileName = "./project8/FunctionCalls/FibonacciElement"
 		// fileName = "StaticTest.vm"
 		// fileName := flag.Args()
 		// fileName := "SimpleAdd.vm"
@@ -136,6 +131,13 @@ func compile(filePath string) error {
 				break
 			}
 			c.WriteFunction(p.Arg1(), arg2)
+		case C_CALL:
+			arg2, err := p.Arg2()
+			if err != nil {
+				fmt.Println(err)
+				break
+			}
+			c.WriteCall(p.Arg1(), arg2)
 		case C_RETURN:
 			c.WriteReturn()
 		}
@@ -242,6 +244,8 @@ func (p *Parser) CommandType() CommandType {
 	case "function":
 		return C_FUNCTION
 	// TODO: implement call command
+	case "call":
+		return C_CALL
 	case "return":
 		return C_RETURN
 	default:
@@ -259,9 +263,6 @@ func (p *Parser) Arg1() string {
 	return cmds[1]
 }
 func (p *Parser) Arg2() (int, error) {
-	if p.CommandType() != C_PUSH && p.CommandType() != C_POP {
-		return -1, fmt.Errorf("Arg2 should be called only push or pop")
-	}
 	cmds := strings.Split(p.commands[p.currentLine], " ")
 	if len(cmds) == 1 {
 		return -1, fmt.Errorf("Arg2 should be called only push or pop")
@@ -273,6 +274,7 @@ func (p *Parser) Arg2() (int, error) {
 type CodeWriter struct {
 	vmCodes    []string
 	labelCount int
+	callCount  int
 }
 
 func NewCodeWriter() *CodeWriter {
@@ -462,7 +464,10 @@ func (c *CodeWriter) getSecondArgSegment(segment string, index int) string {
 func (c *CodeWriter) getSecondArgSegmentIndex(segment string, i int) []string {
 	l := make([]string, 0)
 	if segment != "pointer" {
-		l = append(l, "A=M")
+		// tempはglobal stack管理の値のため,アドレスは常に@5~12を使用する
+		if segment != "temp" {
+			l = append(l, "A=M")
+		}
 		idx := i
 		for idx > 0 {
 			l = append(l, "A=A+1")
@@ -533,18 +538,69 @@ func (c *CodeWriter) WriteFunction(arg1 string, arg2 int) {
 	}
 	c.vmCodes = append(c.vmCodes, result...)
 }
+
+func (c *CodeWriter) newLabel() string {
+	c.callCount++
+	return "FUNC_LABEL_" + strconv.Itoa(c.callCount)
+
+}
+func (c *CodeWriter) WriteCall(funcName string, argNum int) {
+	result := make([]string, 0)
+	returnLabel := c.newLabel()
+	reposCount := strconv.Itoa(5 + argNum)
+
+	result = append(result, "@"+returnLabel)
+	result = append(result, "D=A") // return address
+	result = append(result, SP)
+	result = append(result, "A=M")
+	result = append(result, "M=D") // push return address
+	result = append(result, SP)
+	result = append(result, "M=M+1")
+
+	callerPointerIndice := []string{LCL, ARG, THIS, THAT}
+	for _, seg := range callerPointerIndice {
+		result = append(result, seg)
+		result = append(result, "D=M")
+		result = append(result, SP)
+		result = append(result, "A=M")
+		result = append(result, "M=D")
+		result = append(result, SP)
+		result = append(result, "M=M+1")
+	}
+	// reposition arg(SP-5-nArg)
+	result = append(result, SP)
+	result = append(result, "D=M")
+	result = append(result, "@"+reposCount)
+	result = append(result, "D=D-A")
+	result = append(result, ARG)
+	result = append(result, "M=D")
+	// LCL = SP
+	result = append(result, SP)
+	result = append(result, "D=M")
+	result = append(result, LCL)
+	result = append(result, "M=D")
+
+	// exec callee function
+	result = append(result, "@"+funcName)
+	result = append(result, "0;JMP")
+
+	// return label
+	result = append(result, "("+returnLabel+")")
+	c.callCount++
+	c.vmCodes = append(c.vmCodes, result...)
+}
 func (c *CodeWriter) WriteReturn() {
 	result := make([]string, 0)
 	result = append(result, LCL)
 	result = append(result, "D=M")
-	result = append(result, TMP)
-	result = append(result, "M=D") // store end frame on the TMP[0]
+	result = append(result, "@R13") // 一時変数だが関数によって汚染されないようにTMP[13]に保存
+	result = append(result, "M=D")
 
-	result = append(result, "@5") // refer to before 5 idx of LCL, the indice of return address
-	result = append(result, "D=D-A")
-	result = append(result, TMP)
-	result = append(result, "A=A+1")
-	result = append(result, "M=D") // store return Address on the TMP[1]
+	result = append(result, "@5")    // refer to before 5 idx of LCL, the indice of return address
+	result = append(result, "A=D-A") // D(endFrame) -5 = returnAddress index
+	result = append(result, "D=M")
+	result = append(result, "@R14") // 関数によって汚染されないようにTMP[14]に保存
+	result = append(result, "M=D")
 
 	// 戻り値を *argument segment に設定
 	// WritePushPop を使わない(cmd追加順が狂う)
@@ -554,8 +610,8 @@ func (c *CodeWriter) WriteReturn() {
 	result = append(result, ARG)
 	result = append(result, "A=M")
 	result = append(result, "M=D") // *ARG= pop()
-	result = append(result, SP)
-	result = append(result, "M=M-1")
+	// result = append(result, SP) // SP は後続で書き換えるため不要
+	// result = append(result, "M=M-1")
 
 	// restore caller state
 	result = append(result, ARG) // SP restore
@@ -563,8 +619,8 @@ func (c *CodeWriter) WriteReturn() {
 	result = append(result, SP)
 	result = append(result, "M=D") // SP=ARG+1
 
-	result = append(result, TMP)   // endFrame の参照
-	result = append(result, "D=M") // *(endFrame-1) のcaller THAT参照
+	result = append(result, "@R13") // endFrame の参照
+	result = append(result, "D=M")  // *(endFrame-1) のcaller THAT参照
 	result = append(result, "@1")
 	result = append(result, "D=D-A")
 	result = append(result, "A=D") // A=*THAT
@@ -572,7 +628,7 @@ func (c *CodeWriter) WriteReturn() {
 	result = append(result, THAT)  // *THAT= caller THAT
 	result = append(result, "M=D") // THAT=caller THAT
 
-	result = append(result, TMP) // end frame の参照
+	result = append(result, "@R13") // end frame の参照
 	result = append(result, "D=M")
 	result = append(result, "@2")
 	result = append(result, "D=D-A")
@@ -581,7 +637,7 @@ func (c *CodeWriter) WriteReturn() {
 	result = append(result, THIS)  // *THIS= caller THIS
 	result = append(result, "M=D") // THIS=caller THIS
 
-	result = append(result, TMP) // end frame の参照
+	result = append(result, "@R13") // end frame の参照
 	result = append(result, "D=M")
 	result = append(result, "@3")
 	result = append(result, "D=D-A")
@@ -590,7 +646,7 @@ func (c *CodeWriter) WriteReturn() {
 	result = append(result, ARG)   // *ARG= caller ARG
 	result = append(result, "M=D") // ARG=caller ARG
 
-	result = append(result, TMP) // end frame の参照
+	result = append(result, "@R13") // end frame の参照
 	result = append(result, "D=M")
 	result = append(result, "@4")
 	result = append(result, "D=D-A")
@@ -600,9 +656,8 @@ func (c *CodeWriter) WriteReturn() {
 	result = append(result, "M=D") // LCL=caller LCL
 
 	// goto ret Addr
-	result = append(result, TMP)
+	result = append(result, "@R14")
 	result = append(result, "A=M")
-	result = append(result, "A=A+1")
 	result = append(result, "0;JMP") // return address を参照
 	c.vmCodes = append(c.vmCodes, result...)
 }
