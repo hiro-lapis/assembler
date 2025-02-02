@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ const (
 	THIS  = "@3" // 3000
 	THAT  = "@4" // 3010
 	TMP   = "@5" // 5-12
-	STT   = "@6" // 16-255
+	STT   = 16   // 16-255
 	POINT = ""
 )
 
@@ -44,16 +45,17 @@ func main() {
 		// fmt.Println("please input file name")
 		// return
 		// TODO remove following code
-		// fileName = "./project8/ProgramFlow/BasicLoop/"
+		// fileName = "./project8/ProgramFlow/BasicLoop/BasicLoop.vm"
 		// fileName = "./project8/ProgramFlow/FibonacciSeries/"
 		// fileName = "./project8/FunctionCalls/SimpleFunction"
 		// fileName = "./project8/FunctionCalls/NestedCall"
-		fileName = "./project8/FunctionCalls/FibonacciElement"
+		// fileName = "./project8/FunctionCalls/FibonacciElement"
+		// fileName = "./project8/FunctionCalls/StaticsTest"
 		// fileName = "StaticTest.vm"
 		// fileName := flag.Args()
 		// fileName := "SimpleAdd.vm"
 		// fileName := "BasicTest.vm"
-		// fileName := "PointerTest.vm"
+		// fileName = "PointerTest.vm"
 		// fileName := "StackTest.vm"
 	} else if len(flag.Args()) > 1 {
 		fmt.Println("too many arguments. we use only 1st argument")
@@ -76,11 +78,28 @@ func main() {
 	c := NewCodeWriter()
 	// コマンドでディレクトリを指定された時は、ディレクトリ内のvmファイルを全て変換する
 	if isDir {
-		files, err := os.ReadDir(fileName)
+		// v1.16前の実行環境を考慮して読み込み
+		dir, err := os.Open(fileName)
 		if err != nil {
-			fmt.Println(err)
-			return
+			log.Fatal(err)
 		}
+		defer dir.Close()
+		files, err := dir.Readdir(-1) // 全取得
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// golag 1.16以降の実行可能コード
+		// files, err := os.ReadDir(fileName)
+		// if err != nil {
+		// 	fmt.Println(err)
+		// 	return
+		// }
+
+		// following regulation, call Sys.Init only when reading directory
+		c.WriteCall("Sys.init", 0)
+
+		// 取得したエントリを表示
 		for _, f := range files {
 			if !strings.Contains(f.Name(), ".vm") {
 				continue
@@ -89,24 +108,26 @@ func main() {
 			if string(fileName[len(fileName)-1]) != "/" {
 				slash = "/"
 			}
-			if err = compile(c, fileName+slash+f.Name()); err != nil {
+			className := strings.Split(f.Name(), ".")[0]
+			if err = compile(c, fileName+slash+f.Name(), className); err != nil {
 				fmt.Println(err)
 			}
 		}
 	} else {
-		if err := compile(c, fileName); err != nil {
+		className := strings.Split(fileName, "/")[0]
+		if err := compile(c, fileName, className); err != nil {
 			fmt.Println(err)
 		}
 	}
 	c.CloseFile(outPutPath, outPutFileName)
 }
 
-func compile(c *CodeWriter, filePath string) error {
+func compile(c *CodeWriter, filePath, className string) error {
 	p, err := NewParser(filePath)
 	if err != nil {
 		fmt.Println("file open eror")
 	}
-	// c := NewCodeWriter()
+	c.SetStaticName(className)
 
 	for p.HasMoreCommands() {
 		switch p.CommandType() {
@@ -152,29 +173,8 @@ func compile(c *CodeWriter, filePath string) error {
 
 		p.advance()
 	}
-
-	// asmLines := c.AssembledCodes()
-	// dirPath := filePath[:strings.LastIndex(filePath, "/")+1]
-	// outputFileName := filePath[strings.LastIndex(filePath, "/")+1:strings.LastIndex(filePath, ".")] + ".asm"
-	// createFile(dirPath, outputFileName, asmLines)
-	// fmt.Println("output file: ", dirPath+outputFileName)
 	return nil
 }
-
-// func createFile(dir, fileName string, data []string) {
-// 	file, err := os.Create(dir + fileName)
-// 	if err != nil {
-// 		fmt.Println(err)
-// 		return
-// 	}
-// 	defer file.Close()
-
-// 	w := bufio.NewWriter(file)
-// 	for i := 0; i < len(data); i++ {
-// 		w.WriteString(data[i] + "\n")
-// 	}
-// 	w.Flush()
-// }
 
 type Parser struct {
 	commands    []string
@@ -281,9 +281,11 @@ func (p *Parser) Arg2() (int, error) {
 }
 
 type CodeWriter struct {
-	vmCodes    []string
-	labelCount int
-	callCount  int
+	vmCodes      []string
+	staticLabels map[string]string
+	className    string
+	labelCount   int
+	callCount    int
 }
 
 func NewCodeWriter() *CodeWriter {
@@ -306,10 +308,13 @@ func NewCodeWriter() *CodeWriter {
 	}
 	// codes順を保つため instance 化後にSys.initを実行
 	c := &CodeWriter{
-		vmCodes: asmLines,
+		vmCodes:      asmLines,
+		staticLabels: make(map[string]string),
 	}
-	c.WriteCall("Sys.init", 0)
 	return c
+}
+func (c *CodeWriter) SetStaticName(name string) {
+	c.className = name
 }
 
 func (c *CodeWriter) CloseFile(filePath, fileName string) {
@@ -498,7 +503,15 @@ func (c *CodeWriter) getSecondArgSegment(segment string, index int) string {
 	case "that":
 		return THAT
 	case "static":
-		return STT
+		i := strconv.Itoa(index)
+		if aInstruction, ok := c.staticLabels[c.className+"."+i]; ok {
+			return aInstruction
+		}
+		nextC := len(c.staticLabels)
+		// 16 + exsting count + 1
+		ii := strconv.Itoa(STT + nextC)
+		c.staticLabels[c.className+"."+i] = "@" + ii
+		return "@" + ii
 	}
 
 	return ""
@@ -506,8 +519,9 @@ func (c *CodeWriter) getSecondArgSegment(segment string, index int) string {
 
 func (c *CodeWriter) getSecondArgSegmentIndex(segment string, i int) []string {
 	l := make([]string, 0)
-	if segment != "pointer" {
-		// tempはglobal stack管理の値のため,アドレスは常に@5~12を使用する
+	if segment != "pointer" && segment != "static" {
+		// tempはglobal stack管理の値のため,アドレスeは常に@5~12を使用する
+		// staticはtranslator内でマッピング管理しているためindex移動は不要
 		if segment != "temp" {
 			l = append(l, "A=M")
 		}
@@ -557,7 +571,8 @@ func (c *CodeWriter) WriteLabel(arg2 string) {
 func (c *CodeWriter) WriteIf(arg2 string) {
 	result := make([]string, 0)
 	result = append(result, SP)
-	result = append(result, "A=M-1")
+	result = append(result, "M=M-1")
+	result = append(result, "A=M")
 	result = append(result, "D=M")
 	result = append(result, "@"+arg2)
 	result = append(result, "D;JNE") // jump if true(D!0)(JMPだとバグる)
@@ -585,7 +600,6 @@ func (c *CodeWriter) WriteFunction(funcName string, localValCount int) {
 func (c *CodeWriter) newLabel() string {
 	c.callCount++
 	return "FUNC_LABEL_" + strconv.Itoa(c.callCount)
-
 }
 func (c *CodeWriter) WriteCall(funcName string, argNum int) {
 	result := make([]string, 0)
