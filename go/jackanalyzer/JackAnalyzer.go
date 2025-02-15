@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -103,6 +106,8 @@ var constKeywords = []string{
 
 const symbols = "{}()[].,;+-*/&|<>=~"
 
+var versionParts int
+
 const maxFileSize = 10485760
 
 // analyzer: top-most module
@@ -110,13 +115,16 @@ const maxFileSize = 10485760
 // CompilationEngine: compile tokenized data
 // Auto grader の実行環境v1.13以下での実行を想定
 func main() {
+	versionParts, _ = strconv.Atoi(strings.Split(strings.TrimPrefix(runtime.Version(), "go"), ".")[1]) // 1."20".3
+
 	flag.Parse()
 	fileName := ""
 	if len(flag.Args()) == 0 {
 		// TODO remove following code
 		// fileName = "./project10/sample.jack"
-		// fileName = "./project10/ExpressionLessSquare"
-		fileName = "./project10/Square"
+		fileName = "./project10/ExpressionLessSquare"
+		// fileName = "./project10/Square"
+		// fileName = "./project10/ArrayTest/Main.jack"
 		// fileName = "./project8/ProgramFlow/BasicLoop/BasicLoop.vm"
 		// fileName = "StaticTest.vm"
 		// fileName = "StaticTest.vm"
@@ -197,7 +205,8 @@ func compile(readPath, outPutFileName string) error {
 	c.Compile()
 	outputDir := readPath[:strings.LastIndex(readPath, "/")]
 	// TODO: テストファイル上書き回避のためのoutputDir設定を改修
-	c.CloseFile(outputDir+"/output", outPutFileName)
+	c.CloseFile(outputDir, outPutFileName)
+	// c.CloseFile(outputDir+"/output", outPutFileName)
 	return nil
 }
 
@@ -213,7 +222,8 @@ type Lexer struct {
 // https://regex101.com/r/1J9Z8v/1
 // https://chatgpt.com/share/67a8b629-ac3c-8011-a679-673eff10c172
 func NewLexer() *Lexer {
-	keywordRe := `(?:` + strings.Join(constKeywords, `|`) + `)`
+	// 前方一致で部分ミスマッチ回避
+	keywordRe := `^(?:` + strings.Join(constKeywords, `|`) + `)`
 	// 1文字づつエスケープ
 	var symReList []string
 	for _, s := range symbols {
@@ -271,26 +281,16 @@ type Tokenizer struct {
 }
 
 func NewTokenizer(fileName string) (*Tokenizer, error) {
-	file, err := os.Open(fileName)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	// grader にて10mb unexpected _485_760 at end of statement とエラー出る(v1.13以下?)ので通常のリテラルに変更
-	data := make([]byte, maxFileSize)
-	count, err := file.Read(data)
+	// v1.0を想定
+	file, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		fmt.Println(err)
 		return nil, err
 	}
-	if count == 0 {
-		err := fmt.Errorf("error: file is empty")
-		return nil, err
-	}
-	lines := strings.Split(string(data[:count]), "\n")
-
 	cReg := regexp.MustCompile(commentReg)
+	formatted := cReg.ReplaceAll(file, []byte(""))
+	lines := strings.Split(string(formatted), "\n")
+
 	list := make([]string, 0)
 	for _, line := range lines {
 		v := strings.TrimSpace(line)
@@ -306,9 +306,9 @@ func NewTokenizer(fileName string) (*Tokenizer, error) {
 	return t, nil
 }
 
-var commentReg = `//[^\n]*|/\*.*?\*/`
+var commentReg = `//.*|/\*[\s\S]*?\*/`
 
-// var commentReg = `//[^\n]*\n|/\*(.*?)\*/`
+// var commentReg = `//[^\n]*|/\*.*?\*/`
 
 func (t *Tokenizer) tokenize(lines []string) {
 	for _, line := range lines {
@@ -486,19 +486,48 @@ func (c *CompilationEngine) CompileClass() error {
 
 // 1. five base token compile functions
 
-func (c *CompilationEngine) CompileStringConst(s string) {
+func (c *CompilationEngine) CompileStringConst() {
 	if c.t.TokenType() != T_STR_CONST {
 		return
 	}
+	s := c.t.CurrentToken()
 	// 先頭と末尾の"を除去
 	str := s[1 : len(s)-1]
 	// 一部の文字はエスケープ
-	str = strings.ReplaceAll(str, "<", "&lt;")
-	str = strings.ReplaceAll(str, ">", "&gt;")
-	str = strings.ReplaceAll(str, "&", "&amp;")
-	str = strings.ReplaceAll(str, "\"", "&quot;")
+	str = strings.Replace(str, "<", "&lt;", -1)
+	str = strings.Replace(str, ">", "&gt;", -1)
+	str = strings.Replace(str, "&", "&amp;", -1)
+	str = strings.Replace(str, "\"", "&quot;", -1)
+
+	// v1.12以降ならこっち
+	// str = strings.ReplaceAll(str, "<", "&lt;")
+	// str = strings.ReplaceAll(str, ">", "&gt;")
+	// str = strings.ReplaceAll(str, "&", "&amp;")
+	// str = strings.ReplaceAll(str, "\"", "&quot;")
 
 	c.xmlLines = append(c.xmlLines, "<stringConstant> "+str+" </stringConstant>")
+}
+func (c *CompilationEngine) CompileSymbol() {
+	if c.t.TokenType() != T_SYMBOL {
+		return
+	}
+	tt := c.t.TokenType()
+	sym := c.t.CurrentToken()
+	// 一部の文字はエスケープ
+	var escapes = map[string]string{
+		"<":  "&lt;",
+		">":  "&gt;",
+		"&":  "&amp;",
+		"\"": "&quot;",
+	}
+	for k, v := range escapes {
+		if k == sym {
+			sym = v
+			break
+		}
+	}
+
+	c.xmlLines = append(c.xmlLines, "<"+constTokens[tt]+"> "+sym+" </"+constTokens[tt]+">")
 }
 
 // ~1. base token compile function
@@ -533,7 +562,6 @@ func (c *CompilationEngine) CompileTerm() {
 		// (expression)
 		c.compileCT()
 		c.CompileExpression()
-		c.compileCT()
 		c.processGrammaticallyExpectedToken(T_SYMBOL, ")")
 	} else if tt == T_IDENTIFIER {
 		// varName | varName '[' expression ']' | subroutineCall
@@ -568,6 +596,7 @@ func (c *CompilationEngine) CompileClassVarDec() {
 			c.processGrammaticallyExpectedToken(T_IDENTIFIER) // name
 			c.compileCT()                                     // symbol( , ; )
 			sep = c.isDelimiter()
+			// c.compileCT() // symbol( , ; )
 		}
 
 		c.CompileNonTerminalCloseTag()
@@ -579,17 +608,21 @@ func (c *CompilationEngine) CompileVarDec() {
 	// compiles a var declaration
 	c.CompileNonTerminalOpenTag("varDec")
 	// var
+	// TODO:
 	c.processGrammaticallyExpectedToken(T_KEYWORD, KEY_VAR)
 	for c.isType() {
 		// type
 		c.compileCT()
 		// name
-		c.processGrammaticallyExpectedToken(T_IDENTIFIER)
-		if c.isDelimiter() {
-			c.processGrammaticallyExpectedToken(T_SYMBOL, ",") // 列挙型field separator
+		c.compileCT()
+		sep := c.isDelimiter()
+		c.compileCT()
+		for sep {
+			c.processGrammaticallyExpectedToken(T_IDENTIFIER) // name
+			sep = c.isDelimiter()
+			c.compileCT() // , ;
 		}
 	}
-	c.processGrammaticallyExpectedToken(T_SYMBOL, ";") // ;
 
 	c.CompileNonTerminalCloseTag()
 }
@@ -727,6 +760,7 @@ func (c *CompilationEngine) CompileDoStatement() {
 	// compiles a do statement
 	c.CompileNonTerminalOpenTag("doStatement")
 	c.processGrammaticallyExpectedToken(T_KEYWORD, KEY_DO)
+	c.processGrammaticallyExpectedToken(T_IDENTIFIER)
 	c.CompileSubroutineCall()
 	c.processGrammaticallyExpectedToken(T_SYMBOL, ";")
 	c.CompileNonTerminalCloseTag()
@@ -752,11 +786,11 @@ func (c *CompilationEngine) CompileExpressionList() {
 
 }
 
+// hoge'.fuga()' or 'hoge()' のように、関数実行するidentifierは呼び出し元でコンパイルする
 func (c *CompilationEngine) CompileSubroutineCall() {
 	// compiles a subroutine call expression
 	// subroutineCall のパターンを網羅的にコンパイル
 	// subroutineCall というnon terminal tagはない
-	c.processGrammaticallyExpectedToken(T_IDENTIFIER)
 	if c.t.CurrentToken() == "." {
 		c.compileCT()
 		c.processGrammaticallyExpectedToken(T_IDENTIFIER)
@@ -772,7 +806,13 @@ func (c *CompilationEngine) CompileSubroutineCall() {
 func (c *CompilationEngine) compileCT() (string, TokenType) {
 	t := c.t.CurrentToken()
 	tokenType := c.t.TokenType()
-	c.xmlLines = append(c.xmlLines, "<"+constTokens[tokenType]+"> "+t+" </"+constTokens[tokenType]+">")
+	if tokenType == T_STR_CONST {
+		c.CompileStringConst()
+	} else if tokenType == T_SYMBOL {
+		c.CompileSymbol()
+	} else {
+		c.xmlLines = append(c.xmlLines, "<"+constTokens[tokenType]+"> "+t+" </"+constTokens[tokenType]+">")
+	}
 	c.t.Advance()
 	return t, tokenType
 }
@@ -801,10 +841,12 @@ func (c *CompilationEngine) isToken(t TokenType, s ...string) bool {
 
 // terminal token判定関数
 // int_const, str_const, keyword, 一部symbol((,-,~), identifier(varName,subroutineCall)
+// keyword は trueなど値を持つtokenのみtrue
+// symbol は(, -, ~ など値を表現するtokenのみtrue
 func (c *CompilationEngine) IsTerminalToken() bool {
 	t := c.t.CurrentToken()
 	tt := c.t.TokenType()
-	if tt == T_INT_CONST || tt == T_STR_CONST || tt == T_KEYWORD || tt == T_IDENTIFIER {
+	if tt == T_INT_CONST || tt == T_STR_CONST || c.isKeyWordConst() || tt == T_IDENTIFIER {
 		return true
 	}
 	if t == "(" || t == "-" || t == "~" {
