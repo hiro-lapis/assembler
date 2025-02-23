@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hiro-lapis/jackanalyzer/symboltable"
-	"github.com/hiro-lapis/jackanalyzer/tokenizer"
-	"github.com/hiro-lapis/jackanalyzer/vmwriter"
+	"github.com/hiro-lapis/JackCompiler/symboltable"
+	"github.com/hiro-lapis/JackCompiler/tokenizer"
+	"github.com/hiro-lapis/JackCompiler/vmwriter"
 )
 
 var constTokens = []string{ // keyが上記定数の値と対応してるため移動禁止
@@ -46,12 +46,12 @@ func main() {
 	flag.Parse()
 	fileName := ""
 	if len(flag.Args()) == 0 {
-		// fileName = "./project11/Seven"
-		fileName = "./project11/ConvertToBin"
-		fileName = "./project11/ComplexArrays"
-		fileName = "./project11/Average"
-		fileName = "./project11/Pong"
-		fileName = "./project11/Square"
+		fileName = "./project11/Seven"
+		// fileName = "./project11/ConvertToBin"
+		// fileName = "./project11/ComplexArrays"
+		// fileName = "./project11/Average"
+		// fileName = "./project11/Pong"
+		// fileName = "./project11/Square"
 	} else if len(flag.Args()) > 2 {
 		fmt.Println("too many arguments. we use only 1st argument")
 	}
