@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"log"
@@ -10,7 +9,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hiro-lapis/jackanalyzer/symboltable"
 	"github.com/hiro-lapis/jackanalyzer/tokenizer"
+	"github.com/hiro-lapis/jackanalyzer/vmwriter"
 )
 
 var constTokens = []string{ // keyが上記定数の値と対応してるため移動禁止
@@ -37,8 +38,9 @@ func main() {
 	if len(flag.Args()) == 0 {
 		// TODO remove following code
 		// fileName = "./project10/sample.jack"
-		fileName = "./project10/ExpressionLessSquare"
+		// fileName = "./project10/ExpressionLessSquare"
 		// fileName = "./project10/Square"
+		fileName = "./project11//Main.jack"
 		// fileName = "./project10/ArrayTest/Main.jack"
 		// fileName = "./project8/ProgramFlow/BasicLoop/BasicLoop.vm"
 		// fileName = "StaticTest.vm"
@@ -51,18 +53,15 @@ func main() {
 		fileName = flag.Args()[0]
 	}
 	isDir := false
-	outPutPath := ""
+	outPutBasePath := ""
 	outPutFileName := ""
-	if !strings.Contains(fileName, ".jack") {
-		isDir = true
-		outPutPath = fileName
-		outPutFileName = fileName[strings.LastIndex(fileName, "/")+1:]
+	if strings.Contains(fileName, ".jack") {
+		// dir/fileName
+		outPutFileName = fileName[:strings.LastIndex(fileName, ".jack")]
 	} else {
-		outPutPath = fileName[:strings.LastIndex(fileName, "/")+1]
-		outPutFileName = fileName[strings.LastIndex(fileName, "/")+1:]
-		outPutFileName = outPutFileName[:strings.LastIndex(outPutFileName, ".")]
+		isDir = true
+		outPutBasePath = fileName
 	}
-	fmt.Println(outPutPath, outPutFileName)
 	// コマンドでディレクトリを指定された時は、ディレクトリ内のvmファイルを全て変換する
 	if isDir {
 		// v1.16前の実行環境を考慮して読み込み
@@ -91,37 +90,29 @@ func main() {
 				continue
 			}
 			// project10ではファイル名に応じたxmlファイルを出力
-			outPutFileName = f.Name()[:strings.LastIndex(f.Name(), ".")]
-			slash := ""
+			outPutFileName = outPutBasePath + f.Name()[:strings.LastIndex(f.Name(), ".")]
 			if string(fileName[len(fileName)-1]) != "/" {
-				slash = "/"
+				fileName += "/"
 			}
-			// className := strings.Split(f.Name(), ".")[0]
-			if err = compile(fileName+slash+f.Name(), outPutFileName); err != nil {
+			if err = compile(fileName+f.Name(), outPutFileName); err != nil {
 				// if err = compile(c, fileName+slash+f.Name(), className); err != nil {
 				fmt.Println(err)
 			}
 		}
 	} else {
-		// className := strings.Split(fileName, "/")[0]
 		if err := compile(fileName, outPutFileName); err != nil {
-			// if err := compile(c, fileName, className); err != nil {
 			fmt.Println(err)
 		}
 	}
-	// c.CloseFile(outPutPath, outPutFileName)
 }
 
 func compile(readPath, outPutFileName string) error {
-	c, err := NewCompilationEngine(readPath)
+	c, err := NewCompilationEngine(readPath, outPutFileName)
 	if err != nil {
 		fmt.Println("file open eror")
 	}
 	c.Compile()
-	outputDir := readPath[:strings.LastIndex(readPath, "/")]
-	// TODO: テストファイル上書き回避のためのoutputDir設定を改修
-	c.CloseFile(outputDir, outPutFileName)
-	// c.CloseFile(outputDir+"/output", outPutFileName)
+	c.writer.Close()
 	return nil
 }
 
@@ -130,17 +121,22 @@ type CompilationEngine struct {
 	xmlLines []string
 	// 解析中のルールをスタック形式で保持
 	parseStack []string
+	writer     *vmwriter.VmWriter
+	st         *symboltable.SymbolTable
 }
 
-func NewCompilationEngine(fileName string) (*CompilationEngine, error) {
-	t, err := tokenizer.NewTokenizer(fileName)
+func NewCompilationEngine(readPath, outputFileName string) (*CompilationEngine, error) {
+	t, err := tokenizer.NewTokenizer(readPath)
 	if err != nil {
 		return nil, err
 	}
+	file, _ := os.Create(outputFileName + ".vm")
 	return &CompilationEngine{
 		t:          t,
 		xmlLines:   make([]string, 0),
 		parseStack: make([]string, 0),
+		writer:     vmwriter.NewVmWriter(file),
+		st:         symboltable.NewSymbolTable(),
 	}, nil
 }
 
@@ -206,39 +202,6 @@ func (c *CompilationEngine) CompileExpression() error {
 
 	c.CompileNonTerminalCloseTag()
 	return nil
-}
-
-// fileNane
-func (c *CompilationEngine) CloseFile(filePath, fileName string) {
-	xml := c.xmlLines
-	dir := filePath
-	if (string)(dir[len(dir)-1]) != "/" {
-		dir += "/"
-	}
-	extentionIdx := strings.LastIndex(fileName, ".")
-	outputFileName := fileName
-	if extentionIdx != -1 {
-		outputFileName = fileName[:strings.LastIndex(fileName, ".")] + ".xml"
-	} else {
-		outputFileName = fileName + ".xml"
-	}
-
-	file, err := os.Create(dir + outputFileName)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	defer file.Close()
-
-	w := bufio.NewWriter(file)
-	// 書き出しと末尾に <tokens> </tokens> タグを追加
-	// w.WriteString("<tokens>\n")
-	for i := 0; i < len(xml); i++ {
-		w.WriteString(xml[i] + "\n")
-	}
-	// w.WriteString("</tokens>\n")
-	w.Flush()
-	fmt.Println("output file: ", dir+outputFileName)
 }
 
 // 0. entry of compile jack file, class
@@ -578,7 +541,7 @@ func (c *CompilationEngine) CompileSubroutineCall() {
 // 4. compileロジックのための補助関数
 // tokenizerの現在参照中のtokenをtokentypeそのままXMLに書き込み, 次のtokenへ参照を移す
 // 戻り値で書き込みに使った token value, typeを返す
-func (c *CompilationEngine) compileCT() (string, TokenType) {
+func (c *CompilationEngine) compileCT() (string, tokenizer.TokenType) {
 	t := c.t.CurrentToken()
 	tokenType := c.t.TokenType()
 	if tokenType == tokenizer.T_STR_CONST {

@@ -23,5 +23,5 @@ func NewCodeGenerator() *CodeGenerator {
 func (c *CodeGenerator) Generate() {
 }
 
-func (c *CodeGenerator) Generate() {
-}
+// func (c *CodeGenerator) Generate() {
+// }

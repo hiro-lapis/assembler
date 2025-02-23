@@ -18,13 +18,6 @@ const (
 	SUBROUTINE_LEVEL
 )
 
-func NewSymbolTable() *SymbolTable {
-	return &SymbolTable{
-		classLevel:      make(map[string]*Var),
-		subroutineLevel: make(map[int]map[string]*Var),
-	}
-}
-
 type Var struct {
 	i  int
 	t  string
@@ -37,20 +30,28 @@ type SubVar struct {
 }
 
 type SymbolTable struct {
+	className       string
 	classLevel      map[string]*Var         // class level table
 	subroutineLevel map[int]map[string]*Var // subroutine level table
 	depth           int
 }
 
-// class level
-// x int 0
-// y int 0
-//
-//
+func NewSymbolTable() *SymbolTable {
+	return &SymbolTable{
+		className:       "",
+		classLevel:      make(map[string]*Var),
+		subroutineLevel: make(map[int]map[string]*Var),
+	}
+}
 
 // reset subroutine table
 func (s *SymbolTable) StartSubroutine() {
 	s.subroutineLevel = make(map[int]map[string]*Var)
+}
+
+// reset subroutine table
+func (s *SymbolTable) SetClassName(n string) {
+	s.className = n
 }
 
 func (s *SymbolTable) Define(tl TableKind, name string, t string, vk VarKind) {
