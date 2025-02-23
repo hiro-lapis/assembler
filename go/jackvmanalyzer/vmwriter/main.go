@@ -63,6 +63,16 @@ func (v *VmWriter) WritePop(segment Segment, index int) {
 }
 
 func (v *VmWriter) WriteArithmetic(command string) {
+	// * (multiply)
+	if command == "*" {
+		v.w.WriteString("Math.multiply 2" + "\n")
+		return
+	}
+	// / (divide)
+	if command == "/" {
+		v.w.WriteString("Math.divide 2" + "\n")
+		return
+	}
 	// ADD, SUB, NEG, EQ, GT
 	v.w.WriteString(strings.ToUpper(command) + "\n")
 }
