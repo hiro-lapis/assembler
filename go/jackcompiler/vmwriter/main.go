@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"os"
 	"strconv"
-	"strings"
 )
 
 type VmWriter struct {
@@ -34,7 +33,7 @@ func NewVmWriter(file *os.File) *VmWriter {
 
 func (v *VmWriter) toString(segment Segment) string {
 	if segment == CONSTANT {
-		return "constatnt"
+		return "constant"
 	}
 	if segment == LOCAL {
 		return "local"
@@ -63,18 +62,28 @@ func (v *VmWriter) WritePop(segment Segment, index int) {
 }
 
 func (v *VmWriter) WriteArithmetic(command string) {
-	// * (multiply)
+	// add
+	if command == "+" {
+		v.w.WriteString("add" + "\n")
+		return
+	}
+	// sub
+	if command == "-" {
+		v.w.WriteString("sub" + "\n")
+		return
+	}
+	// multiply
 	if command == "*" {
-		v.w.WriteString("Math.multiply 2" + "\n")
+		v.w.WriteString("call Math.multiply 2" + "\n")
 		return
 	}
-	// / (divide)
+	// divide
 	if command == "/" {
-		v.w.WriteString("Math.divide 2" + "\n")
+		v.w.WriteString("call Math.divide 2" + "\n")
 		return
 	}
-	// ADD, SUB, NEG, EQ, GT
-	v.w.WriteString(strings.ToUpper(command) + "\n")
+	// NEG, EQ, GT
+	v.w.WriteString(command + "\n")
 }
 
 func (v *VmWriter) WriteLabel(label string) {
@@ -99,7 +108,7 @@ func (v *VmWriter) WriteFunction(name string, nLocals int) {
 }
 
 func (v *VmWriter) WriteReturn() {
-	v.w.WriteString("return \n")
+	v.w.WriteString("return\n")
 }
 
 func (v *VmWriter) Close() {
