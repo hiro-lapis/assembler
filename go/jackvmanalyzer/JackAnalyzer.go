@@ -40,7 +40,7 @@ func main() {
 		// fileName = "./project10/sample.jack"
 		// fileName = "./project10/ExpressionLessSquare"
 		// fileName = "./project10/Square"
-		fileName = "./project11//Main.jack"
+		fileName = "./project11/Seven/Main.jack"
 		// fileName = "./project10/ArrayTest/Main.jack"
 		// fileName = "./project8/ProgramFlow/BasicLoop/BasicLoop.vm"
 		// fileName = "StaticTest.vm"
@@ -119,10 +119,15 @@ func compile(readPath, outPutFileName string) error {
 type CompilationEngine struct {
 	t        *tokenizer.Tokenizer
 	xmlLines []string
+	cName    string
 	// 解析中のルールをスタック形式で保持
 	parseStack []string
 	writer     *vmwriter.VmWriter
 	st         *symboltable.SymbolTable
+}
+
+func (c *CompilationEngine) setClassName(n string) {
+	c.cName = n
 }
 
 func NewCompilationEngine(readPath, outputFileName string) (*CompilationEngine, error) {
@@ -208,8 +213,10 @@ func (c *CompilationEngine) CompileExpression() error {
 func (c *CompilationEngine) CompileClass() error {
 	c.CompileNonTerminalOpenTag("class")
 	c.processGrammaticallyExpectedToken(tokenizer.T_KEYWORD, tokenizer.KEY_CLASS) // class
-	c.processGrammaticallyExpectedToken(tokenizer.T_IDENTIFIER)                   // className
-	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "{")                  // {
+	cName := c.processGrammaticallyExpectedToken(tokenizer.T_IDENTIFIER)          // className
+	// 現在コンパイル中のクラス名を登録
+	c.setClassName(cName)
+	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "{") // {
 
 	if c.isClassVarDec() {
 		c.CompileClassVarDec()
@@ -383,7 +390,8 @@ func (c *CompilationEngine) CompileSubroutineDec() error {
 		c.CompileNonTerminalOpenTag("subroutineDec")
 
 		// constructor, function, method
-		c.processGrammaticallyExpectedToken(tokenizer.T_KEYWORD)
+		subRoutineType := c.processGrammaticallyExpectedToken(tokenizer.T_KEYWORD)
+
 		// return type (void:keyword or type:identifier)
 		// jackは関数名の前に戻り値を記載. 戻り値ない時も常にvoidを付ける必要がある
 		c.CompileReturnDec()
