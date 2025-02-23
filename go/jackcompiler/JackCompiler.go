@@ -22,6 +22,16 @@ var constTokens = []string{ // keyが上記定数の値と対応してるため�
 	"identifier",
 }
 
+// - var declaration in subroutine
+// - pass  multiple argument  when call function
+// - register argument var into symbol table
+// - let statement
+// - unary operation
+// - while statement
+// - if and else statement
+// - handle &
+// - handle >
+
 var versionParts int
 
 const maxFileSize = 10485760
@@ -36,16 +46,12 @@ func main() {
 	flag.Parse()
 	fileName := ""
 	if len(flag.Args()) == 0 {
-		// TODO remove following code
-		// fileName = "./project10/sample.jack"
-		// fileName = "./project10/ExpressionLessSquare"
-		// fileName = "./project10/Square"
-		fileName = "./project11/Seven/Main.jack"
-		// fileName = "./project10/ArrayTest/Main.jack"
-		// fileName = "./project8/ProgramFlow/BasicLoop/BasicLoop.vm"
-		// fileName = "StaticTest.vm"
-		// fileName = "StaticTest.vm"
-		// fileName := "StackTest.vm"
+		// fileName = "./project11/Seven"
+		fileName = "./project11/ConvertToBin"
+		fileName = "./project11/ComplexArrays"
+		fileName = "./project11/Average"
+		fileName = "./project11/Pong"
+		fileName = "./project11/Square"
 	} else if len(flag.Args()) > 2 {
 		fmt.Println("too many arguments. we use only 1st argument")
 	}
