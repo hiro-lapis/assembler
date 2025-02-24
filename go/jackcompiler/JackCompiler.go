@@ -45,13 +45,13 @@ func main() {
 	flag.Parse()
 	fileName := ""
 	if len(flag.Args()) == 0 {
-		fileName = "./project11/Seven"
+		// fileName = "./project11/Seven"
 		// fileName = "./project11/ConvertToBin/"
 		// fileName = "./project11/ConvertToBin/Main.jack"
-		// fileName = "./project11/ComplexArrays"
-		// fileName = "./project11/Average"
-		// fileName = "./project11/Pong"
 		// fileName = "./project11/Square"
+		fileName = "./project11/Average"
+		// fileName = "./project11/ComplexArrays"
+		// fileName = "./project11/Pong"
 	} else if len(flag.Args()) > 2 {
 		fmt.Println("too many arguments. we use only 1st argument")
 	}
@@ -320,11 +320,19 @@ func (c *CompilationEngine) CompileTerm() {
 		num, _ := strconv.Atoi(t)
 		c.writer.WritePush(CONSTANT, num)
 	} else if c.isKeyWordConst() {
-
 		kwd, _ := c.compileCT()
 		c.CompileKeyWord(kwd)
 	} else if tt == T_STR_CONST {
-		c.compileCT()
+		str, _ := c.compileCT()
+		// TODO: remove quotation during tokenizing
+		str = str[1 : len(str)-1]
+		// 文字列分のメモリを確保し,関数で文字に変換結合
+		c.writer.WritePush(CONSTANT, len(str))
+		c.writer.WriteCall("String.new", 1)
+		for _, v := range str {
+			c.writer.WritePush(CONSTANT, int(v))
+			c.writer.WriteCall("String.appendChar", 2)
+		}
 	} else if t == "-" || t == "~" {
 		// VM: compile  unary term postfix order.
 		//-1 => ex. push const 1 , neg
@@ -362,26 +370,34 @@ func (c *CompilationEngine) CompileTerm() {
 	c.CompileNonTerminalCloseTag()
 }
 
-func (c *CompilationEngine) CompileClassVarDec() {
+func (c *CompilationEngine) CompileClassVarDec() (count int) {
 	// compiles a static declaration or a field declaration
 	// static or field => type => varName => ;
 	for c.isClassVarDec() {
 		c.CompileNonTerminalOpenTag("classVarDec")
-		c.processGrammaticallyExpectedToken(T_KEYWORD)    // field, static                         // type
-		c.compileCT()                                     // type
-		c.processGrammaticallyExpectedToken(T_IDENTIFIER) // name
+		s := c.processGrammaticallyExpectedToken(T_KEYWORD)       // field, static                         // type
+		t, _ := c.compileCT()                                     // type
+		name := c.processGrammaticallyExpectedToken(T_IDENTIFIER) // name
+		seg := STATIC
+		if s == "field" {
+			seg = FIELD
+		}
+		count++
+		c.st.Define(CLASS_LEVEL, name, t, seg)
 		sep := c.isDelimiter()
 		c.compileCT() // symbol( , ; )
 		// 同型列挙の処理
 		for sep {
-			c.processGrammaticallyExpectedToken(T_IDENTIFIER) // name
-			c.compileCT()                                     // symbol( , ; )
+			name = c.processGrammaticallyExpectedToken(T_IDENTIFIER) // name
+			c.compileCT()                                            // symbol( , ; )
 			sep = c.isDelimiter()
-			// c.compileCT() // symbol( , ; )
+			c.st.Define(CLASS_LEVEL, name, t, seg)
+			count++
 		}
 
 		c.CompileNonTerminalCloseTag()
 	}
+	return count
 }
 
 // type varName (, varName)*; 変数/プロパティ型定義のコンパイル
@@ -437,7 +453,7 @@ func (c *CompilationEngine) CompileSubroutineDec() error {
 		c.CompileNonTerminalOpenTag("subroutineDec")
 
 		// constructor, function, method
-		c.processGrammaticallyExpectedToken(T_KEYWORD)
+		funcKwd := c.processGrammaticallyExpectedToken(T_KEYWORD)
 
 		// return type (void:keyword or type:identifier)
 		// jackは関数名の前に戻り値を記載. 戻り値ない時も常にvoidを付ける必要がある
@@ -456,7 +472,7 @@ func (c *CompilationEngine) CompileSubroutineDec() error {
 		c.processGrammaticallyExpectedToken(T_SYMBOL, ")")
 
 		// subroutine body
-		c.CompileSubroutineBody()
+		c.CompileSubroutineBody(funcKwd)
 		c.CompileNonTerminalCloseTag()
 		// VM: reset return type and fName
 		c.rType = ""
@@ -465,7 +481,7 @@ func (c *CompilationEngine) CompileSubroutineDec() error {
 	return nil
 }
 
-func (c *CompilationEngine) CompileSubroutineBody() error {
+func (c *CompilationEngine) CompileSubroutineBody(funcKwd string) error {
 	c.CompileNonTerminalOpenTag("subroutineBody")
 	c.processGrammaticallyExpectedToken(T_SYMBOL, "{")
 	// jackでは関数初期に変数定義あり
@@ -475,6 +491,19 @@ func (c *CompilationEngine) CompileSubroutineBody() error {
 	}
 	// VM: write method declaration
 	c.writer.WriteFunction(c.cName+"."+c.fName, aCount)
+	// コンストラクタのメモリ割当
+	if funcKwd == KEY_CONSTRUCTOR {
+		propCount, _ := c.st.VarCount(FIELD)
+		c.writer.WritePush(CONSTANT, propCount)
+		c.writer.WriteCall("Memory.alloc", 1)
+		c.writer.WritePop(THIS, 0) // alloc の戻り値(base address)をthisに当てる
+	}
+	// method定義で、かつclass変数を持つので args[0]=instance base address セット
+	memCount, _ := c.st.VarCount(FIELD)
+	if funcKwd == KEY_METHOD && memCount > 0 {
+		c.writer.WritePush(ARG, 0)
+		c.writer.WritePop(THIS, 0)
+	}
 	// 関数本体はstatementで構成される
 	c.CompileStatements()
 
@@ -600,11 +629,27 @@ func (c *CompilationEngine) CompileDoStatement() {
 	// compiles a do statement
 	c.CompileNonTerminalOpenTag("doStatement")
 	c.processGrammaticallyExpectedToken(T_KEYWORD, KEY_DO)
-	cName := c.processGrammaticallyExpectedToken(T_IDENTIFIER)
+	varName := c.processGrammaticallyExpectedToken(T_IDENTIFIER)
 	// VM: 引数渡しのpush stash を先にコンパイルする
-	fName, count := c.CompileSubroutineCall()
+	fName, aCount := c.CompileSubroutineCall()
+	// VM: cNameが変数名の場合,stackにbase address を登録.引数としてカウント
+	index, _ := c.st.IndexOf(varName)
+	if index != -1 {
+		seg, _ := c.st.KindOf(varName)
+		c.writer.WritePush(seg, index)
+		// 変数名もtypeに変換
+		varName, _ = c.st.TypeOf(varName)
+		aCount++
+	} else if fName == "" {
+		// pass this base address and increment arg count to call self method
+		c.writer.WritePush(THIS, 0)
+		aCount++
+		// 自己参照できるようthis.methodName にフォーマット
+		fName = varName
+		varName = c.cName
+	}
 	// VM: 関数呼び出しをコンパイル
-	c.writer.WriteCall(cName+"."+fName, count)
+	c.writer.WriteCall(varName+"."+fName, aCount)
 	c.processGrammaticallyExpectedToken(T_SYMBOL, ";")
 	// VM: do statement doesn't receive return value, pop return value
 	c.writer.WritePop(TEMP, 0)
@@ -655,7 +700,9 @@ func (c *CompilationEngine) CompileSubroutineCall() (fName string, count int) {
 		fName = c.processGrammaticallyExpectedToken(T_IDENTIFIER)
 	}
 	c.processGrammaticallyExpectedToken(T_SYMBOL, "(")
-	count = c.CompileExpressionList()
+	if c.t.CurrentToken() != ")" {
+		count = c.CompileExpressionList()
+	}
 	c.processGrammaticallyExpectedToken(T_SYMBOL, ")")
 	return fName, count
 }
@@ -878,9 +925,11 @@ func (s *SymbolTable) VarCount(vk Segment) (int, error) {
 			count++
 		}
 	}
-	for _, v := range s.classLevel {
-		if v.vk == vk {
-			count++
+	for i := 0; i < len(s.subroutineLevel); i++ {
+		for _, v := range s.subroutineLevel[i] {
+			if v.vk == vk {
+				count++
+			}
 		}
 	}
 	return count, nil
@@ -917,6 +966,7 @@ const (
 	ARG
 	TEMP
 	STATIC
+	FIELD
 	THIS
 	THAT
 )
@@ -958,6 +1008,9 @@ func (v *VmWriter) toString(segment Segment) string {
 	}
 	if segment == TEMP {
 		return "temp"
+	}
+	if segment == FIELD {
+		return "this"
 	}
 	if segment == THIS {
 		return "pointer" // 0
