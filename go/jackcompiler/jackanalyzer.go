@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hiro-lapis/JackCompiler/symboltable"
-	"github.com/hiro-lapis/JackCompiler/tokenizer"
-	"github.com/hiro-lapis/JackCompiler/vmwriter"
+	"github.com/hiro-lapis/jackanalyzer/symboltable"
+	"github.com/hiro-lapis/jackanalyzer/tokenizer"
+	"github.com/hiro-lapis/jackanalyzer/vmwriter"
 )
 
 var constTokens = []string{ // keyが上記定数の値と対応してるため移動禁止
@@ -46,8 +46,8 @@ func main() {
 	flag.Parse()
 	fileName := ""
 	if len(flag.Args()) == 0 {
-		fileName = "./project11/Seven"
-		// fileName = "./project11/ConvertToBin"
+		// fileName = "./project11/Seven"
+		fileName = "./project11/ConvertToBin"
 		// fileName = "./project11/ComplexArrays"
 		// fileName = "./project11/Average"
 		// fileName = "./project11/Pong"
@@ -96,7 +96,7 @@ func main() {
 				continue
 			}
 			// project10ではファイル名に応じたxmlファイルを出力
-			outPutFileName = outPutBasePath + f.Name()[:strings.LastIndex(f.Name(), ".")]
+			outPutFileName = outPutBasePath + "/" + f.Name()[:strings.LastIndex(f.Name(), ".")]
 			if string(fileName[len(fileName)-1]) != "/" {
 				fileName += "/"
 			}
@@ -131,6 +131,8 @@ type CompilationEngine struct {
 	st         *symboltable.SymbolTable
 	// class name of compiling file
 	cName string
+	// function name of compiling file
+	fName string
 	// return type of compiling subroutine
 	rType string
 }
@@ -216,7 +218,7 @@ func (c *CompilationEngine) CompileExpression() error {
 		c.CompileTerm()
 
 		// VM: VM stack での演算は post fix なのでterm push の後にコンパイル
-		c.writer.WriteArithmetic(op)
+		c.writer.WriteArithmetic(vmwriter.ArtCmds[op])
 	}
 
 	c.CompileNonTerminalCloseTag()
@@ -318,10 +320,12 @@ func (c *CompilationEngine) CompileTerm() {
 	} else if c.isKeyWordConst() || tt == tokenizer.T_STR_CONST {
 		c.compileCT()
 	} else if t == "-" || t == "~" {
-		// unary operator term
-		c.compileCT()
-		// 再帰
+		// VM: compile  unary term postfix order.
+		//-1 => ex. push const 1 , neg
+		uop, _ := c.compileCT()
+		// op によって演算される項を先にpush. 再帰から戻ったら uop の演算を出力
 		c.CompileTerm()
+		c.writer.WriteArithmetic(vmwriter.UnaryCmds[uop])
 	} else if tt == tokenizer.T_SYMBOL && t == "(" { // (2 * 3)
 		// (expression)
 		c.compileCT()         // (
@@ -329,7 +333,7 @@ func (c *CompilationEngine) CompileTerm() {
 		c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, ")")
 	} else if tt == tokenizer.T_IDENTIFIER {
 		// varName | varName '[' expression ']' | subroutineCall
-		cName, _ := c.compileCT()
+		nIdentifier, _ := c.compileCT()
 		if c.t.CurrentToken() == "[" {
 			// varName '[' expression ']'
 			c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "[")
@@ -339,7 +343,12 @@ func (c *CompilationEngine) CompileTerm() {
 			// subroutineCall
 			fName, count := c.CompileSubroutineCall()
 			// VM: CompileSubroutineCall で引数を stack にpush した後に function call をコンパイル
-			c.writer.WriteCall(cName+"."+fName, count)
+			c.writer.WriteCall(nIdentifier+"."+fName, count)
+		} else {
+			// VM: varName単体
+			k, _ := c.st.KindOf(nIdentifier)
+			i, _ := c.st.IndexOf(nIdentifier)
+			c.writer.WritePush(k, i)
 		}
 	} else {
 		fmt.Println("error: token type is not matched")
@@ -384,14 +393,14 @@ func (c *CompilationEngine) CompileVarDec() (count int) {
 		vName, _ := c.compileCT()
 		sep := c.isDelimiter()
 		// VM: register variable in subroutine level
-		c.st.Define(symboltable.SUBROUTINE_LEVEL, vName, vType, symboltable.VAR)
+		c.st.Define(symboltable.SUBROUTINE_LEVEL, vName, vType, vmwriter.LCL)
 		count++
 		c.compileCT()
 		for sep {
 			vName = c.processGrammaticallyExpectedToken(tokenizer.T_IDENTIFIER) // name
 			sep = c.isDelimiter()
 			// VM: register variable in subroutine level
-			c.st.Define(symboltable.SUBROUTINE_LEVEL, vName, vType, symboltable.VAR)
+			c.st.Define(symboltable.SUBROUTINE_LEVEL, vName, vType, vmwriter.LCL)
 			count++
 			c.compileCT() // , ;
 		}
@@ -429,21 +438,21 @@ func (c *CompilationEngine) CompileSubroutineDec() error {
 		// VM: in the func, compiler engine save return type for the last compile process of subroutine
 		c.CompileReturnDec()
 		// method name
-		fName := c.processGrammaticallyExpectedToken(tokenizer.T_IDENTIFIER)
+		// VM: 関数名を保存し、var dec をよみこんだタイミングでfunc dec コンパイル.return のタイミングで初期化する
+		c.fName = c.processGrammaticallyExpectedToken(tokenizer.T_IDENTIFIER)
 		// (
 		c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "(")
 		// parameter list
-		count := c.CompileParameterList()
+		c.CompileParameterList()
 		// )
 		c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, ")")
 
-		// VM: write method declaration
-		c.writer.WriteFunction(c.cName+"."+fName, count)
 		// subroutine body
 		c.CompileSubroutineBody()
 		c.CompileNonTerminalCloseTag()
-		// VM: reset return type info
+		// VM: reset return type and fName
 		c.rType = ""
+		c.fName = ""
 	}
 	return nil
 }
@@ -455,9 +464,12 @@ func (c *CompilationEngine) CompileSubroutineBody() error {
 	c.st.StartSubroutine()
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "{")
 	// jackでは関数初期に変数定義あり
+	aCount := 0
 	for c.isVarDec() {
-		c.CompileVarDec()
+		aCount += c.CompileVarDec()
 	}
+	// VM: write method declaration
+	c.writer.WriteFunction(c.cName+"."+c.fName, aCount)
 	// 関数本体はstatementで構成される
 	c.CompileStatements()
 
@@ -475,8 +487,9 @@ func (c *CompilationEngine) CompileParameterList() (count int) {
 
 	for c.isType() {
 		// 型宣言なのでidnetifier含めkeywordとしてコンパイル
-		c.compileCT()
-		c.processGrammaticallyExpectedToken(tokenizer.T_IDENTIFIER) // name
+		vType, _ := c.compileCT()
+		vName := c.processGrammaticallyExpectedToken(tokenizer.T_IDENTIFIER) // name
+		c.st.Define(symboltable.SUBROUTINE_LEVEL, vName, vType, vmwriter.ARG)
 		if c.isDelimiter() {
 			c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, ",") // 列挙型field separator
 		}
@@ -491,7 +504,9 @@ func (c *CompilationEngine) CompileLetStatement() error {
 	c.CompileNonTerminalOpenTag("letStatement")
 
 	c.processGrammaticallyExpectedToken(tokenizer.T_KEYWORD, tokenizer.KEY_LET)
-	c.processGrammaticallyExpectedToken(tokenizer.T_IDENTIFIER)
+	vName := c.processGrammaticallyExpectedToken(tokenizer.T_IDENTIFIER)
+	vSegment, _ := c.st.KindOf(vName)
+	vIndex, _ := c.st.IndexOf(vName)
 
 	// 配列の場合を考慮して次のtokenを見てコンパイルを分岐
 	if c.t.CurrentToken() == "[" {
@@ -502,6 +517,8 @@ func (c *CompilationEngine) CompileLetStatement() error {
 	}
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "=")
 	c.CompileExpression()
+	// VM: assign right side expression's value to the left side var
+	c.writer.WritePush(vmwriter.Segment(vSegment), vIndex)
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, ";")
 
 	c.CompileNonTerminalCloseTag()
