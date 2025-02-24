@@ -122,6 +122,7 @@ func compile(readPath, outPutFileName string) error {
 	return nil
 }
 
+// struct-1.CompilationEngine
 type CompilationEngine struct {
 	t        *Tokenizer
 	xmlLines []string
@@ -774,8 +775,7 @@ func (c *CompilationEngine) isSubRoutineDec() bool {
 	return c.t.TokenType() == T_KEYWORD && (c.t.CurrentToken() == KEY_FUNCTION || c.t.CurrentToken() == KEY_CONSTRUCTOR || c.t.CurrentToken() == KEY_METHOD)
 }
 
-// Symbol table
-
+// struct-2.Symbol table
 type TableKind int
 
 const (
@@ -903,7 +903,7 @@ func (s *SymbolTable) find(name string) (*Var, error) {
 	return nil, err
 }
 
-// VM writer
+// struct-3.VM writer
 type VmWriter struct {
 	f *os.File
 	w *bufio.Writer
@@ -1009,6 +1009,7 @@ func (v *VmWriter) Close() {
 	v.f.Close()
 }
 
+// struct-4.tokenizer
 const (
 	KEY_CLASS       = "class"
 	KEY_CONSTRUCTOR = "constructor"
@@ -1150,6 +1151,7 @@ func (t *Tokenizer) CurrentToken() string {
 	return t.tokens[t.current].v
 }
 
+// struct-5.Lexer
 type Lexer struct {
 	keywordReg *regexp.Regexp
 	symbolReg  *regexp.Regexp
