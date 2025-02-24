@@ -349,10 +349,19 @@ func (c *CompilationEngine) CompileTerm() {
 		// varName | varName '[' expression ']' | subroutineCall
 		nIdentifier, _ := c.compileCT()
 		if c.t.CurrentToken() == "[" {
+			// 配列へのアクセスのため第一引数として base address push
+			seg, _ := c.st.KindOf(nIdentifier)
+			idx, _ := c.st.IndexOf(nIdentifier)
 			// varName '[' expression ']'
 			c.processGrammaticallyExpectedToken(T_SYMBOL, "[")
 			c.CompileExpression()
 			c.processGrammaticallyExpectedToken(T_SYMBOL, "]")
+			c.writer.WritePush(seg, idx)
+			// fmt.Printf("seg %v idex %v arith %s", seg, idx, ArtCmds["+"])
+			// arr base address + index のためのadd
+			c.writer.WriteArithmetic(ArtCmds["+"])
+			c.writer.WritePop(POINTER, 1)
+			c.writer.WritePush(THAT, 0)
 		} else if c.t.CurrentToken() == "(" || c.t.CurrentToken() == "." {
 			// subroutineCall
 			fName, count := c.CompileSubroutineCall()
@@ -543,16 +552,27 @@ func (c *CompilationEngine) CompileLetStatement() error {
 	vIndex, _ := c.st.IndexOf(vName)
 
 	// 配列の場合を考慮して次のtokenを見てコンパイルを分岐
-	if c.t.CurrentToken() == "[" {
+	arrayAccess := c.t.CurrentToken() == "["
+	if arrayAccess {
 		// [expression]
 		c.compileCT()
 		c.CompileExpression()
 		c.compileCT()
+		// THAT(配列)base address + expressionのindex設定
+		c.writer.WritePush(vSegment, vIndex)
+		c.writer.WriteArithmetic(ArtCmds["+"])
 	}
 	c.processGrammaticallyExpectedToken(T_SYMBOL, "=")
 	c.CompileExpression()
-	// VM: assign right side expression's value to the left side var
-	c.writer.WritePop(Segment(vSegment), vIndex)
+	if !arrayAccess {
+		// VM: assign right side expression's value to the left side var
+		c.writer.WritePop(Segment(vSegment), vIndex)
+	} else {
+		c.writer.WritePop(TEMP, 0)    // exp の値を退避
+		c.writer.WritePop(POINTER, 1) // arr[i] = exp
+		c.writer.WritePush(TEMP, 0)
+		c.writer.WritePop(THAT, 0)
+	}
 	c.processGrammaticallyExpectedToken(T_SYMBOL, ";")
 
 	c.CompileNonTerminalCloseTag()
@@ -969,6 +989,7 @@ const (
 	FIELD
 	THIS
 	THAT
+	POINTER
 )
 
 var ArtCmds = map[string]string{
@@ -1016,9 +1037,15 @@ func (v *VmWriter) toString(segment Segment) string {
 		return "pointer" // 0
 	}
 	if segment == THAT { // 1
+		return "that"
+	}
+	if segment == STATIC {
+		return "static"
+	}
+	if segment == POINTER {
 		return "pointer"
 	}
-	return "static"
+	return ""
 }
 func (v *VmWriter) WritePush(segment Segment, index int) {
 	v.w.WriteString("push " + v.toString(segment) + " " + strconv.Itoa(index) + "\n")
