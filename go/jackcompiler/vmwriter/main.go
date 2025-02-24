@@ -15,13 +15,30 @@ type Segment int
 
 const (
 	CONSTANT Segment = iota
-	LOCAL
+	LCL
 	ARG
 	TEMP
 	STATIC
 	THIS
 	THAT
 )
+
+var ArtCmds = map[string]string{
+	"+": "add",
+	"-": "sub",
+	"*": "call Math.multiply 2",
+	"/": "call Math.divide 2",
+	"&": "and",
+	"|": "or",
+	"=": "eq",
+	">": "gt",
+	"<": "lt",
+}
+
+var UnaryCmds = map[string]string{
+	"-": "neg",
+	"~": "not",
+}
 
 // receive pointer of os.File which is made by os.Create(fileName)
 func NewVmWriter(file *os.File) *VmWriter {
@@ -35,7 +52,7 @@ func (v *VmWriter) toString(segment Segment) string {
 	if segment == CONSTANT {
 		return "constant"
 	}
-	if segment == LOCAL {
+	if segment == LCL {
 		return "local"
 	}
 	if segment == ARG {
@@ -51,7 +68,6 @@ func (v *VmWriter) toString(segment Segment) string {
 		return "pointer"
 	}
 	return "static"
-
 }
 func (v *VmWriter) WritePush(segment Segment, index int) {
 	v.w.WriteString("push " + v.toString(segment) + " " + strconv.Itoa(index) + "\n")
@@ -62,32 +78,11 @@ func (v *VmWriter) WritePop(segment Segment, index int) {
 }
 
 func (v *VmWriter) WriteArithmetic(command string) {
-	// add
-	if command == "+" {
-		v.w.WriteString("add" + "\n")
-		return
-	}
-	// sub
-	if command == "-" {
-		v.w.WriteString("sub" + "\n")
-		return
-	}
-	// multiply
-	if command == "*" {
-		v.w.WriteString("call Math.multiply 2" + "\n")
-		return
-	}
-	// divide
-	if command == "/" {
-		v.w.WriteString("call Math.divide 2" + "\n")
-		return
-	}
-	// NEG, EQ, GT
 	v.w.WriteString(command + "\n")
 }
 
 func (v *VmWriter) WriteLabel(label string) {
-	v.w.WriteString("(" + label + ")" + "\n")
+	v.w.WriteString("label " + label + "\n")
 }
 
 func (v *VmWriter) WriteGoto(label string) {
@@ -108,7 +103,7 @@ func (v *VmWriter) WriteFunction(name string, nLocals int) {
 }
 
 func (v *VmWriter) WriteReturn() {
-	v.w.WriteString("return\n")
+	v.w.WriteString("return" + "\n")
 }
 
 func (v *VmWriter) Close() {

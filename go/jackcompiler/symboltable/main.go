@@ -1,14 +1,9 @@
 package symboltable
 
-import "fmt"
+import (
+	"fmt"
 
-type VarKind int
-
-const (
-	STATIC VarKind = iota
-	FIELD
-	ARGUMENT
-	VAR
+	"github.com/hiro-lapis/jackanalyzer/vmwriter"
 )
 
 type TableKind int
@@ -21,12 +16,12 @@ const (
 type Var struct {
 	i  int
 	t  string
-	vk VarKind
+	vk vmwriter.Segment // STATIC, FIELD, ARGUMENT, LCL, THIS, THAT
 }
 type SubVar struct {
 	i  int
 	t  string
-	vk VarKind
+	vk vmwriter.Segment
 }
 
 type SymbolTable struct {
@@ -54,7 +49,7 @@ func (s *SymbolTable) SetClassName(n string) {
 	s.className = n
 }
 
-func (s *SymbolTable) Define(tl TableKind, name string, t string, vk VarKind) {
+func (s *SymbolTable) Define(tl TableKind, name string, t string, vk vmwriter.Segment) {
 	index := 0
 	if tl == CLASS_LEVEL {
 		// increment var index besed on exsting same kind vars
@@ -71,7 +66,10 @@ func (s *SymbolTable) Define(tl TableKind, name string, t string, vk VarKind) {
 				index++
 			}
 		}
-		s.subroutineLevel[0][name] = &Var{i: index, t: t, vk: vk}
+		if s.subroutineLevel[s.depth] == nil {
+			s.subroutineLevel[s.depth] = make(map[string]*Var)
+		}
+		s.subroutineLevel[s.depth][name] = &Var{i: index, t: t, vk: vk}
 	}
 }
 
@@ -95,15 +93,15 @@ func (s *SymbolTable) TypeOf(name string) (string, error) {
 	return v.t, err
 }
 
-func (s *SymbolTable) KindOf(name string) (VarKind, error) {
+func (s *SymbolTable) KindOf(name string) (vmwriter.Segment, error) {
 	v, err := s.find(name)
 	if err != nil {
-		return STATIC, err
+		return vmwriter.STATIC, err
 	}
 	return v.vk, err
 }
 
-func (s *SymbolTable) VarCount(vk VarKind) (int, error) {
+func (s *SymbolTable) VarCount(vk vmwriter.Segment) (int, error) {
 	count := 0
 	for _, v := range s.classLevel {
 		if v.vk == vk {
@@ -120,7 +118,7 @@ func (s *SymbolTable) VarCount(vk VarKind) (int, error) {
 
 func (s *SymbolTable) find(name string) (*Var, error) {
 	// look current depth first, then upper depth
-	for i := s.depth; i > 0; i-- {
+	for i := s.depth; i >= 0; i-- {
 		v, ok := s.subroutineLevel[i][name]
 		if ok {
 			return v, nil

@@ -46,8 +46,9 @@ func main() {
 	flag.Parse()
 	fileName := ""
 	if len(flag.Args()) == 0 {
-		// fileName = "./project11/Seven"
-		fileName = "./project11/ConvertToBin"
+		fileName = "./project11/Seven"
+		// fileName = "./project11/ConvertToBin/"
+		// fileName = "./project11/ConvertToBin/Main.jack"
 		// fileName = "./project11/ComplexArrays"
 		// fileName = "./project11/Average"
 		// fileName = "./project11/Pong"
@@ -134,7 +135,8 @@ type CompilationEngine struct {
 	// function name of compiling file
 	fName string
 	// return type of compiling subroutine
-	rType string
+	rType  string
+	lCount int
 }
 
 func (c *CompilationEngine) setClassName(n string) {
@@ -317,7 +319,11 @@ func (c *CompilationEngine) CompileTerm() {
 		// VM use constant to write number on VM file
 		num, _ := strconv.Atoi(t)
 		c.writer.WritePush(vmwriter.CONSTANT, num)
-	} else if c.isKeyWordConst() || tt == tokenizer.T_STR_CONST {
+	} else if c.isKeyWordConst() {
+
+		kwd, _ := c.compileCT()
+		c.CompileKeyWord(kwd)
+	} else if tt == tokenizer.T_STR_CONST {
 		c.compileCT()
 	} else if t == "-" || t == "~" {
 		// VM: compile  unary term postfix order.
@@ -440,6 +446,8 @@ func (c *CompilationEngine) CompileSubroutineDec() error {
 		// method name
 		// VM: 関数名を保存し、var dec をよみこんだタイミングでfunc dec コンパイル.return のタイミングで初期化する
 		c.fName = c.processGrammaticallyExpectedToken(tokenizer.T_IDENTIFIER)
+		// VM: reset subroutine level symbol table to compile the function
+		c.st.StartSubroutine()
 		// (
 		c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "(")
 		// parameter list
@@ -459,9 +467,6 @@ func (c *CompilationEngine) CompileSubroutineDec() error {
 
 func (c *CompilationEngine) CompileSubroutineBody() error {
 	c.CompileNonTerminalOpenTag("subroutineBody")
-	// TODO: より上層のCompileSubroutineDecでリセットする方がいいかも。要確認
-	// VM: reset subroutine level symbol table to compile the function
-	c.st.StartSubroutine()
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "{")
 	// jackでは関数初期に変数定義あり
 	aCount := 0
@@ -518,7 +523,7 @@ func (c *CompilationEngine) CompileLetStatement() error {
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "=")
 	c.CompileExpression()
 	// VM: assign right side expression's value to the left side var
-	c.writer.WritePush(vmwriter.Segment(vSegment), vIndex)
+	c.writer.WritePop(vmwriter.Segment(vSegment), vIndex)
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, ";")
 
 	c.CompileNonTerminalCloseTag()
@@ -531,17 +536,32 @@ func (c *CompilationEngine) CompileWhileStatement() {
 	// compiles a while statement
 	c.CompileNonTerminalOpenTag("whileStatement")
 	c.compileCT()
+	// VM: write label for loop
+	wStart := c.lCount
+	c.writer.WriteLabel(fmt.Sprintf("%s_%v", c.cName, wStart))
+	// VM: increment lCount to realize nest conditional jump in statements
+	c.lCount++
+	wEnd := c.lCount
+	c.lCount++
 
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "(")
 	// 条件部分はexpression
 	c.CompileExpression()
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, ")")
+	// VM: while から抜ける時のgoto
+	c.writer.WriteArithmetic(vmwriter.UnaryCmds["~"])
+	c.writer.WriteIf(fmt.Sprintf("%s_%v", c.cName, wEnd))
+
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "{")
 	c.CompileStatements()
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "}")
+	// VM: while(exp) の判定へgoto
+	c.writer.WriteGoto(fmt.Sprintf("%s_%v", c.cName, wStart))
+	c.writer.WriteLabel(fmt.Sprintf("%s_%v", c.cName, wEnd))
 	c.CompileNonTerminalCloseTag()
 
 }
+
 func (c *CompilationEngine) CompileIfStatement() error {
 	// compiles an if statement, possibly with a trailing else clause
 	c.CompileNonTerminalOpenTag("ifStatement")
@@ -549,15 +569,27 @@ func (c *CompilationEngine) CompileIfStatement() error {
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "(")
 	c.CompileExpression()
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, ")")
+	L1 := c.lCount // end of if statement
+	c.lCount++
+	L2 := c.lCount // else statement
+	c.lCount++
+	// VM: else conditional jump
+	c.writer.WriteArithmetic(vmwriter.UnaryCmds["~"])
+	c.writer.WriteIf(fmt.Sprintf("%s_%v", c.cName, L2))
+
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "{")
 	c.CompileStatements()
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "}")
+
+	c.writer.WriteGoto(fmt.Sprintf("%s_%v", c.cName, L1))
+	c.writer.WriteLabel(fmt.Sprintf("%s_%v", c.cName, L2)) // L2 for else
 	if c.t.CurrentToken() == tokenizer.KEY_ELSE {
 		c.compileCT()
 		c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "{")
 		c.CompileStatements()
 		c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, "}")
 	}
+	c.writer.WriteLabel(fmt.Sprintf("%s_%v", c.cName, L1)) // L1 after if operation
 	c.CompileNonTerminalCloseTag()
 	return nil
 }
@@ -586,7 +618,7 @@ func (c *CompilationEngine) CompileReturnStatement() {
 	if c.rType == "void" && c.t.CurrentToken() == ";" {
 		c.writer.WritePush(vmwriter.CONSTANT, 0)
 	} else {
-		c.writer.WriteReturn()
+		c.CompileExpression()
 	}
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, ";")
 	// VM: add return after pushing return value
@@ -626,6 +658,21 @@ func (c *CompilationEngine) CompileSubroutineCall() (fName string, count int) {
 	count = c.CompileExpressionList()
 	c.processGrammaticallyExpectedToken(tokenizer.T_SYMBOL, ")")
 	return fName, count
+}
+
+func (c *CompilationEngine) CompileKeyWord(kwd string) {
+	if kwd == tokenizer.KEY_TRUE {
+		c.writer.WritePush(vmwriter.CONSTANT, 1)
+		c.writer.WriteArithmetic(vmwriter.UnaryCmds["-"])
+		return
+	}
+	if kwd == tokenizer.KEY_FALSE || kwd == tokenizer.KEY_NULL {
+		c.writer.WritePush(vmwriter.CONSTANT, 0)
+		return
+	}
+	if kwd == tokenizer.KEY_THIS {
+		c.writer.WritePush(vmwriter.THIS, 0)
+	}
 }
 
 // 4. compileロジックのための補助関数
@@ -700,6 +747,7 @@ func (c *CompilationEngine) isType() bool {
 	// primitive type
 	return c.t.TokenType() == tokenizer.T_KEYWORD && (t == tokenizer.KEY_INT || t == tokenizer.KEY_CHAR || t == tokenizer.KEY_BOOLEAN)
 }
+
 func (c *CompilationEngine) isDelimiter() bool {
 	return c.t.CurrentToken() == ","
 }
