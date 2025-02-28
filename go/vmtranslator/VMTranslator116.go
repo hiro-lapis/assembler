@@ -1,5 +1,5 @@
-//go:build !go1.13
-// +build !go1.13
+//go:build go1.16
+// +build go1.16
 
 package main
 
@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -38,9 +37,10 @@ const (
 	C_CALL                          // function call
 )
 
-const maxFileSize = 10485760
+const maxFileSize = 10_485_760
 
-// Auto grader の実行環境v1.13以下での実行を想定
+// this func is implemented v1.16~, which is not applyed auto grader
+// if we want to use translator for assignment, use VMTranslator.go
 func main() {
 	flag.Parse()
 	fileName := ""
@@ -81,23 +81,12 @@ func main() {
 	c := NewCodeWriter()
 	// コマンドでディレクトリを指定された時は、ディレクトリ内のvmファイルを全て変換する
 	if isDir {
-		// v1.16前の実行環境を考慮して読み込み
-		dir, err := os.Open(fileName)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer dir.Close()
-		files, err := dir.Readdir(-1) // 全取得
-		if err != nil {
-			log.Fatal(err)
-		}
-
 		// golag 1.16以降の実行可能コード
-		// files, err := os.ReadDir(fileName)
-		// if err != nil {
-		// 	fmt.Println(err)
-		// 	return
-		// }
+		files, err := os.ReadDir(fileName)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 
 		// following regulation, call Sys.Init only when reading directory
 		c.WriteCall("Sys.init", 0)
