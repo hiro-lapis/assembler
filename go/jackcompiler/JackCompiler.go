@@ -569,9 +569,9 @@ func (c *CompilationEngine) CompileLetStatement() error {
 		c.writer.WritePop(Segment(vSegment), vIndex)
 	} else {
 		c.writer.WritePop(TEMP, 0)    // exp の値を退避
-		c.writer.WritePop(POINTER, 1) // arr[i] = exp
+		c.writer.WritePop(POINTER, 1) // *THAT参照設定(arr[i] のアドレスをTHATにセット)
 		c.writer.WritePush(TEMP, 0)
-		c.writer.WritePop(THAT, 0)
+		c.writer.WritePop(THAT, 0) // arr[i]にexpをセット
 	}
 	c.processGrammaticallyExpectedToken(T_SYMBOL, ";")
 
